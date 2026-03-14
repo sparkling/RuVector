@@ -2880,7 +2880,8 @@ class Intelligence {
       file_sequences: [],
       agents: {},
       edges: [],
-      stats: { total_patterns: 0, total_memories: 0, total_trajectories: 0, total_errors: 0, session_count: 0, last_session: 0 }
+      stats: { total_patterns: 0, total_memories: 0, total_trajectories: 0, total_errors: 0, session_count: 0, last_session: 0 },
+      activeTrajectories: {}
     };
     try {
       if (fs.existsSync(this.intelPath)) {
@@ -2896,7 +2897,9 @@ class Intelligence {
           edges: data.edges || defaults.edges,
           stats: { ...defaults.stats, ...(data.stats || {}) },
           // Preserve learning data if present
-          learning: data.learning || undefined
+          learning: data.learning || undefined,
+          // Preserve active trajectories for cross-command persistence
+          activeTrajectories: data.activeTrajectories || {}
         };
       }
     } catch {}
