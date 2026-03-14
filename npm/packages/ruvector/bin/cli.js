@@ -4388,9 +4388,10 @@ hooksCmd.command('error-suggest')
 hooksCmd.command('force-learn')
   .description('Force an immediate learning cycle')
   .action(() => {
-    const intel = new Intelligence({ skipEngine: true });  // Fast mode
-    intel.tick();
-    console.log(JSON.stringify({ success: true, result: 'Learning cycle triggered', stats: intel.stats() }));
+    const intel = new Intelligence();  // Need engine for tick()
+    const eng = intel.engine;
+    if (eng) { eng.tick(); }
+    console.log(JSON.stringify({ success: true, result: eng ? 'Learning cycle triggered' : 'Engine not available', stats: intel.stats() }));
   });
 
 // ============================================
