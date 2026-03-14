@@ -4310,6 +4310,11 @@ hooksCmd.command('trajectory-end')
     if (!intel.data.trajectories) intel.data.trajectories = [];
     intel.data.trajectories.push(traj);
     delete trajectories[latestTrajId];
+    // RV-003: sync stats counters from actual data before saving
+    if (!intel.data.stats) intel.data.stats = {};
+    intel.data.stats.total_trajectories = intel.data.trajectories.length;
+    intel.data.stats.total_patterns = Object.keys(intel.data.patterns || {}).length;
+    intel.data.stats.total_memories = (intel.data.memories || []).length;
     intel.save();
 
     console.log(JSON.stringify({
