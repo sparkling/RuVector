@@ -1,12 +1,19 @@
 //! In-memory knowledge graph with similarity edges
 //!
-//! Integrates ruvector-mincut for real graph partitioning and
-//! ruvector-solver for PPR-based ranked search.
+//! Integrates ruvector-mincut for real graph partitioning,
+//! ruvector-solver for PPR-based ranked search, and
+//! ruvector-sparsifier for compressed spectral analytics (ADR-116).
 
 use crate::types::*;
 use ruvector_mincut::{DynamicMinCut, MinCutBuilder};
+use ruvector_mincut::canonical::source_anchored::{
+    self as canonical_sa, SourceAnchoredConfig,
+};
+use ruvector_mincut::graph::DynamicGraph;
 use ruvector_solver::forward_push::ForwardPushSolver;
 use ruvector_solver::types::CsrMatrix;
+use ruvector_sparsifier::{AdaptiveGeoSpar, SparseGraph, SparsifierConfig};
+use ruvector_sparsifier::traits::Sparsifier;
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -25,6 +32,8 @@ pub struct KnowledgeGraph {
     node_index: HashMap<Uuid, usize>,
     /// Whether the CSR cache needs rebuilding
     csr_dirty: bool,
+    /// Spectral sparsifier for compressed graph analytics (ADR-116)
+    sparsifier: Option<AdaptiveGeoSpar>,
 }
 
 struct GraphNode {
@@ -49,6 +58,7 @@ impl KnowledgeGraph {
             node_ids: Vec::new(),
             node_index: HashMap::new(),
             csr_dirty: false,
+            sparsifier: None,
         }
     }
 
@@ -87,6 +97,16 @@ impl KnowledgeGraph {
         self.nodes.insert(memory.id, new_node);
         self.node_index.insert(memory.id, new_idx);
         self.node_ids.push(memory.id);
+
+        // Update sparsifier with new edges (ADR-116)
+        if let Some(ref mut spar) = self.sparsifier {
+            for edge in &new_edges {
+                if let Some(&v_pos) = self.node_index.get(&edge.target) {
+                    let _ = spar.insert_edge(new_idx, v_pos, edge.weight);
+                }
+            }
+        }
+
         self.edges.extend(new_edges);
 
         // Mark CSR as dirty — deferred rebuild until next query
@@ -95,6 +115,24 @@ impl KnowledgeGraph {
 
     /// Remove a memory from the graph
     pub fn remove_memory(&mut self, id: &Uuid) {
+        // Collect edges to delete from sparsifier before removing them
+        if let Some(ref mut spar) = self.sparsifier {
+            if let Some(&u_pos) = self.node_index.get(id) {
+                for edge in &self.edges {
+                    let (src, tgt) = if edge.source == *id {
+                        (u_pos, self.node_index.get(&edge.target).copied())
+                    } else if edge.target == *id {
+                        (u_pos, self.node_index.get(&edge.source).copied())
+                    } else {
+                        continue;
+                    };
+                    if let Some(v_pos) = tgt {
+                        let _ = spar.delete_edge(src, v_pos);
+                    }
+                }
+            }
+        }
+
         self.nodes.remove(id);
         self.edges.retain(|e| e.source != *id && e.target != *id);
         self.node_ids.retain(|nid| nid != id);
@@ -107,6 +145,8 @@ impl KnowledgeGraph {
         self.mincut = None;
         self.csr_cache = None;
         self.csr_dirty = false;
+        // Sparsifier indices are now stale after compaction — rebuild lazily
+        self.sparsifier = None;
     }
 
     /// Get top-k similar memories by graph traversal.
@@ -253,17 +293,35 @@ impl KnowledgeGraph {
         clusters
     }
 
-    /// Attempt partitioning via DynamicMinCut (returns clusters, cut_value, edge_strengths)
+    /// Attempt partitioning via DynamicMinCut (returns clusters, cut_value, edge_strengths).
+    ///
+    /// When a sparsifier is available and the full graph has > 50 000 edges,
+    /// uses the sparsified edge set (~19K edges vs ~1M) for a ~59x speedup
+    /// while preserving spectral cut quality (ADR-116).
     fn partition_via_mincut_full(&self, min_cluster_size: usize) -> Option<(Vec<KnowledgeCluster>, f64, Vec<EdgeStrengthInfo>)> {
-        let edges: Vec<(u64, u64, f64)> = self
-            .edges
-            .iter()
-            .filter_map(|e| {
-                let &u = self.node_index.get(&e.source)? ;
-                let &v = self.node_index.get(&e.target)?;
-                Some((u as u64, v as u64, e.weight))
-            })
-            .collect();
+        let use_sparsified = self.sparsifier.is_some() && self.edges.len() > 50_000;
+
+        let edges: Vec<(u64, u64, f64)> = if use_sparsified {
+            let spar = self.sparsifier.as_ref().unwrap();
+            spar.sparsifier().edges().map(|(u, v, w)| (u as u64, v as u64, w)).collect()
+        } else {
+            self.edges
+                .iter()
+                .filter_map(|e| {
+                    let &u = self.node_index.get(&e.source)?;
+                    let &v = self.node_index.get(&e.target)?;
+                    Some((u as u64, v as u64, e.weight))
+                })
+                .collect()
+        };
+
+        if use_sparsified {
+            tracing::debug!(
+                full_edges = self.edges.len(),
+                sparsified_edges = edges.len(),
+                "partition_via_mincut_full: using sparsified edges"
+            );
+        }
 
         let mincut = MinCutBuilder::new()
             .exact()
@@ -436,6 +494,77 @@ impl KnowledgeGraph {
         strengths
     }
 
+    /// Partition using source-anchored canonical min-cut (ADR-117).
+    ///
+    /// Returns deterministic clusters with a stable `cut_hash` suitable for
+    /// RVF witnesses. Falls back to standard partition if canonical cut
+    /// cannot be computed (disconnected graph, < 3 nodes, etc.).
+    pub fn partition_canonical_full(
+        &self,
+        min_cluster_size: usize,
+    ) -> (Vec<KnowledgeCluster>, f64, Vec<EdgeStrengthInfo>, Option<String>, Option<u64>) {
+        if self.nodes.len() < 3 {
+            let (clusters, cut_val, strengths) = self.partition_full(min_cluster_size);
+            return (clusters, cut_val, strengths, None, None);
+        }
+
+        // Build a DynamicGraph snapshot for canonical computation
+        let graph = DynamicGraph::new();
+        for edge in &self.edges {
+            if let (Some(&u), Some(&v)) = (
+                self.node_index.get(&edge.source),
+                self.node_index.get(&edge.target),
+            ) {
+                let _ = graph.insert_edge(u as u64, v as u64, edge.weight);
+            }
+        }
+
+        let config = SourceAnchoredConfig::default();
+        match canonical_sa::canonical_mincut(&graph, &config) {
+            Some(cut) => {
+                let cut_value = cut.lambda.to_f64();
+                let cut_hash_hex = hex::encode(cut.cut_hash);
+                let first_sep = cut.first_separable_vertex;
+
+                // Build clusters from the canonical cut's source side
+                let source_side: std::collections::HashSet<u64> =
+                    cut.side_vertices.iter().copied().collect();
+
+                let side_a: Vec<Uuid> = self.node_ids.iter().enumerate()
+                    .filter(|(i, _)| source_side.contains(&(*i as u64)))
+                    .map(|(_, id)| *id)
+                    .collect();
+                let side_b: Vec<Uuid> = self.node_ids.iter().enumerate()
+                    .filter(|(i, _)| !source_side.contains(&(*i as u64)))
+                    .map(|(_, id)| *id)
+                    .collect();
+
+                let mut clusters = Vec::new();
+                let mut cluster_id = 0u32;
+
+                for side in [&side_a, &side_b] {
+                    if side.len() >= min_cluster_size {
+                        clusters.push(self.build_cluster(cluster_id, side));
+                        cluster_id += 1;
+                    }
+                }
+
+                if clusters.is_empty() {
+                    let (cl, cv, st) = self.partition_full(min_cluster_size);
+                    return (cl, cv, st, Some(cut_hash_hex), Some(first_sep));
+                }
+
+                let strengths = self.compute_edge_strengths(&clusters);
+                (clusters, cut_value, strengths, Some(cut_hash_hex), Some(first_sep))
+            }
+            None => {
+                // Canonical cut not available (disconnected graph, etc.)
+                let (clusters, cut_val, strengths) = self.partition_full(min_cluster_size);
+                (clusters, cut_val, strengths, None, None)
+            }
+        }
+    }
+
     /// Rebuild the DynamicMinCut from all current edges
     pub fn rebuild_mincut(&mut self) {
         let edges: Vec<(u64, u64, f64)> = self
@@ -505,6 +634,100 @@ impl KnowledgeGraph {
     pub fn edge_count(&self) -> usize {
         self.edges.len()
     }
+
+    // ----- Sparsifier (ADR-116) -----------------------------------------------
+
+    /// Initialize or rebuild the spectral sparsifier from current edges.
+    pub fn rebuild_sparsifier(&mut self) {
+        if self.node_ids.is_empty() {
+            self.sparsifier = None;
+            return;
+        }
+
+        let mut sg = SparseGraph::with_capacity(self.node_ids.len());
+        for edge in &self.edges {
+            if let (Some(&u), Some(&v)) = (
+                self.node_index.get(&edge.source),
+                self.node_index.get(&edge.target),
+            ) {
+                let _ = sg.insert_or_update_edge(u, v, edge.weight);
+            }
+        }
+
+        let config = SparsifierConfig {
+            epsilon: 0.2,
+            edge_budget_factor: 8,
+            audit_interval: 500,
+            walk_length: 6,
+            num_walks: 10,
+            n_audit_probes: 30,
+            auto_rebuild_on_audit_failure: true,
+            ..Default::default()
+        };
+
+        match AdaptiveGeoSpar::build(&sg, config) {
+            Ok(spar) => {
+                tracing::info!(
+                    full_edges = self.edges.len(),
+                    sparsified_edges = spar.sparsifier().num_edges(),
+                    compression = %format!("{:.1}x", spar.compression_ratio()),
+                    "Sparsifier built"
+                );
+                self.sparsifier = Some(spar);
+            }
+            Err(e) => {
+                tracing::warn!("Sparsifier build failed: {e}");
+                self.sparsifier = None;
+            }
+        }
+    }
+
+    /// Ensure the sparsifier is initialized (lazy build on first access).
+    pub fn ensure_sparsifier(&mut self) {
+        if self.sparsifier.is_none() && !self.edges.is_empty() {
+            self.rebuild_sparsifier();
+        }
+    }
+
+    /// Get sparsifier stats for monitoring, or None if not initialized.
+    pub fn sparsifier_stats(&self) -> Option<SparsifierStatsInfo> {
+        let spar = self.sparsifier.as_ref()?;
+        let stats = spar.stats();
+        Some(SparsifierStatsInfo {
+            full_edges: stats.full_edge_count,
+            sparsified_edges: stats.edge_count,
+            compression_ratio: spar.compression_ratio(),
+            insertions: stats.insertions,
+            deletions: stats.deletions,
+            audits: stats.audit_count,
+            audit_pass_rate: if stats.audit_count > 0 {
+                stats.audit_pass_count as f64 / stats.audit_count as f64
+            } else {
+                1.0
+            },
+            full_rebuilds: stats.full_rebuilds,
+        })
+    }
+
+    /// Run a spectral audit on the sparsifier, returning pass/fail and error.
+    pub fn sparsifier_audit(&self) -> Option<(bool, f64)> {
+        let spar = self.sparsifier.as_ref()?;
+        let result = spar.audit();
+        Some((result.passed, result.max_error))
+    }
+}
+
+/// Sparsifier stats for the status endpoint (ADR-116).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SparsifierStatsInfo {
+    pub full_edges: usize,
+    pub sparsified_edges: usize,
+    pub compression_ratio: f64,
+    pub insertions: u64,
+    pub deletions: u64,
+    pub audits: u64,
+    pub audit_pass_rate: f64,
+    pub full_rebuilds: u64,
 }
 
 impl Default for KnowledgeGraph {

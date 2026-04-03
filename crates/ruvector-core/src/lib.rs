@@ -13,11 +13,11 @@
 //! ## ⚠️ Experimental/Incomplete Features - READ BEFORE USE
 //!
 //! - **AgenticDB**: ⚠️⚠️⚠️ **CRITICAL WARNING** ⚠️⚠️⚠️
-//!   - Uses PLACEHOLDER hash-based embeddings, NOT real semantic embeddings
+//!   - Uses PLACEHOLDER hash-based embeddings by default, NOT real semantic embeddings
 //!   - "dog" and "cat" will NOT be similar (different characters)
 //!   - "dog" and "god" WILL be similar (same characters) - **This is wrong!**
-//!   - **MUST integrate real embedding model for production** (ONNX, Candle, or API)
-//!   - See [`agenticdb`] module docs and `/examples/onnx-embeddings` for integration
+//!   - **Use `OnnxEmbedding` for production** (feature: `onnx-embeddings`)
+//!   - See [`embeddings::OnnxEmbedding`] for real semantic embeddings
 //! - **Advanced Features**: Conformal prediction, hybrid search - functional but less tested
 //!
 //! ## What This Is NOT
@@ -76,8 +76,9 @@ pub mod advanced;
 // Re-exports
 pub use advanced_features::{
     ConformalConfig, ConformalPredictor, EnhancedPQ, FilterExpression, FilterStrategy,
-    FilteredSearch, HybridConfig, HybridSearch, MMRConfig, MMRSearch, PQConfig, PredictionSet,
-    BM25,
+    FilteredSearch, FusionConfig, FusionStrategy, HybridConfig, HybridSearch, MMRConfig,
+    MMRSearch, PQConfig, PredictionSet, ScoredDoc, SparseIndex, SparseVector, BM25,
+    fuse_rankings,
 };
 
 #[cfg(feature = "storage")]
@@ -93,13 +94,16 @@ pub use embeddings::{BoxedEmbeddingProvider, EmbeddingProvider, HashEmbedding};
 #[cfg(feature = "real-embeddings")]
 pub use embeddings::CandleEmbedding;
 
+#[cfg(feature = "onnx-embeddings")]
+pub use embeddings::OnnxEmbedding;
+
 // Compile-time warning about AgenticDB limitations
 #[cfg(feature = "storage")]
 #[allow(deprecated, clippy::let_unit_value)]
 const _: () = {
     #[deprecated(
         since = "0.1.0",
-        note = "AgenticDB uses placeholder hash-based embeddings. For semantic search, integrate a real embedding model (ONNX, Candle, or API). See /examples/onnx-embeddings for production setup."
+        note = "AgenticDB uses placeholder hash-based embeddings. For semantic search, use OnnxEmbedding (feature: onnx-embeddings) or ApiEmbedding. See ADR-114 for details."
     )]
     const AGENTICDB_EMBEDDING_WARNING: () = ();
     let _ = AGENTICDB_EMBEDDING_WARNING;
@@ -137,6 +141,11 @@ mod tests {
         // Verify version matches workspace - use dynamic check instead of hardcoded value
         let version = env!("CARGO_PKG_VERSION");
         assert!(!version.is_empty(), "Version should not be empty");
-        assert!(version.starts_with("0.1."), "Version should be 0.1.x");
+        // Version 2.x is the current major version
+        assert!(
+            version.starts_with("2.") || version.starts_with("0.1."),
+            "Version should be 2.x or 0.1.x, got: {}",
+            version
+        );
     }
 }

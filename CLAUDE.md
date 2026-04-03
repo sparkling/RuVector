@@ -1,4 +1,4 @@
-# Claude Code Configuration - Claude Flow V3
+# Claude Code Configuration - RuFlo V3
 
 ## Behavioral Rules (Always Enforced)
 
@@ -10,55 +10,6 @@
 - Never continuously check status after spawning a swarm — wait for results
 - ALWAYS read a file before editing it
 - NEVER commit secrets, credentials, or .env files
-
-## Publishing (crates.io & npm)
-
-- Credentials are in `.env` (project root) and `~/.cargo/credentials.toml` — NEVER commit or log these
-- npm is authenticated as `ruvnet` — verify with `npm whoami`
-- **NEVER** echo, cat, or print credential files. Source `.env` only via `source .env`
-- **Publish order for solver crates**: `ruvector-solver` first (no deps), then `ruvector-solver-wasm` and `ruvector-solver-node` (depend on solver)
-- Always run `cargo publish --dry-run --allow-dirty` before real publish
-- `ruvector-profiler` has `publish = false` — intentionally not publishable
-
-### npx ruvector (npm)
-
-- **Package**: `ruvector` on npm, published as `ruvnet`
-- **Location**: `npm/packages/ruvector/`
-- **Current version**: check `npm/packages/ruvector/package.json`
-- **Pre-publish checklist**:
-  1. `cd npm/packages/ruvector`
-  2. Update version in `package.json` AND `bin/mcp-server.js` (2 occurrences of version string)
-  3. `node -c bin/cli.js && node -c bin/mcp-server.js` (syntax check)
-  4. `npm test` (55 CLI + integration tests must pass)
-  5. `npm publish --access public`
-- **Key files**:
-  - `bin/cli.js` (~8500 lines) — 48 commands, 12 groups (brain, edge, identity, mcp, rvf, hooks, llm, sona, route, gnn, attention, embed)
-  - `bin/mcp-server.js` (~3500 lines) — 91 MCP tools, stdio + SSE transports
-  - `test/integration.js` — module loading, type defs, package structure
-  - `test/cli-commands.js` — 55 CLI command tests
-- **chalk ESM fix**: chalk v5 is ESM-only, we use CJS. Always use: `const _chalk = require('chalk'); const chalk = _chalk.default || _chalk;`
-- **Lazy loading**: GNN, attention, ora are lazy-loaded for ~55ms startup. Do NOT convert to eager imports.
-- **Peer deps** (optional): `@ruvector/pi-brain`, `@ruvector/ruvllm`, `@ruvector/router`
-
-### π.ruv.io (Cloud Run)
-
-- **Service**: `ruvbrain` in `us-central1` on project `ruv-dev`
-- **Source**: `crates/mcp-brain-server/` — axum Rust server
-- **Landing page**: `crates/mcp-brain-server/static/index.html` (embedded via `include_str!`)
-- **Origin slideshow**: `crates/mcp-brain-server/static/origin.html`
-- **Deploy**:
-  1. Edit HTML in `crates/mcp-brain-server/static/`
-  2. `gcloud builds submit --config=crates/mcp-brain-server/cloudbuild.yaml --project=ruv-dev .`
-  3. `gcloud run deploy ruvbrain --image gcr.io/ruv-dev/ruvbrain:latest --region us-central1 --project ruv-dev`
-- **Dockerfile**: `crates/mcp-brain-server/Dockerfile` — strips `examples/` from workspace before build
-- **Domain**: `π.ruv.io` (also `pi.ruv.io`) → Cloud Run custom domain mapping
-
-### Rust Crates (crates.io)
-
-- **Publish order**: Check inter-crate `path =` dependencies. Publish leaf crates first.
-- **Version deps**: Before publishing, convert `path = "../foo"` to `version = "x.y"` in Cargo.toml
-- **Dry run**: `cargo publish --dry-run --allow-dirty -p <crate-name>`
-- **EXO-AI crates**: Published as v0.1.1 (ruvector-exo-core, ruvector-exo-vision, etc.)
 
 ## File Organization
 
@@ -230,6 +181,62 @@ npx @claude-flow/cli@latest doctor --fix
 - Claude Code's Task tool handles ALL execution: agents, file ops, code generation, git
 - CLI tools handle coordination via Bash: swarm init, memory, hooks, routing
 - NEVER use CLI tools as a substitute for Task tool agents
+
+## pi.ruv.io Brain Integration
+
+The shared brain at `pi.ruv.io` stores collective knowledge (1,500+ memories, 350K+ graph edges). Use it during development.
+
+### When to Use the Brain
+- **Before implementing**: Search for existing patterns — `brain_search("authentication pattern")`
+- **After implementing**: Share learnings — `brain_share({ category: "solution", title: "...", content: "..." })`
+- **When debugging**: Check if similar issues were solved — `brain_search("WASM panic fix")`
+
+### Brain MCP Tools (via pi-brain SSE)
+```
+brain_status  — check health (memories, edges, clusters)
+brain_search  — semantic search across shared knowledge
+brain_share   — contribute a learning (auto PII-stripped + witness chain)
+brain_list    — list recent memories by category
+brain_drift   — check knowledge drift
+brain_partition — get MinCut clusters (use compact=true, can be slow)
+```
+
+### Key Brain Rules
+- NEVER share raw API keys, credentials, or PHI to the brain
+- ALWAYS use category: `architecture | pattern | solution | convention | security | performance | tooling | debug`
+- ALWAYS include relevant tags (max 10, max 30 chars each)
+- Brain has differential privacy (ε=1.0) — embeddings are noised
+- If MCP tools return 404, the SSE session is stale — restart dev server
+
+### Brain REST API (when MCP is unavailable)
+```bash
+# Status (no auth)
+curl https://pi.ruv.io/v1/status
+
+# Search (needs auth header)
+curl -H "Authorization: Bearer $KEY" "https://pi.ruv.io/v1/memories/search?q=query&limit=5"
+
+# List
+curl -H "Authorization: Bearer $KEY" "https://pi.ruv.io/v1/memories/list?limit=10"
+```
+
+### Google Cloud Deployment
+- Service: `ruvbrain` in `us-central1` (session affinity enabled)
+- Secrets: `gcloud secrets versions access latest --secret=SECRET_NAME`
+- Available secrets: `ANTHROPIC_API_KEY`, `GOOGLE_AI_API_KEY`, `huggingface-token`, `OPENROUTER_API_KEY`
+- 7 Cloud Scheduler optimization jobs running (train, drift, transfer, graph, attractor, cleanup, full)
+
+## Project Structure Quick Reference
+
+| Directory | Contents |
+|-----------|----------|
+| `crates/` | Rust crates (ruvector-cnn, mcp-brain-server, sparsifier, mincut, solver, etc.) |
+| `npm/packages/` | NPM packages (@ruvector/cnn, rvf, pi-brain, etc.) |
+| `ui/ruvocal/` | RuVocal chat UI (SvelteKit) — do NOT add app-specific code here |
+| `examples/` | Standalone example apps (e.g., `examples/dragnes/`) |
+| `docs/adr/` | Architecture Decision Records (ADR-001 through ADR-118) |
+| `docs/research/` | Research documents (per-project subdirectories) |
+| `scripts/` | Utility and deployment scripts |
 
 ## Support
 

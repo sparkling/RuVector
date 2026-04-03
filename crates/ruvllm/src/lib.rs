@@ -110,6 +110,11 @@
 #![allow(clippy::mut_from_ref)]
 #![allow(clippy::needless_question_mark)]
 #![allow(clippy::unnecessary_unwrap)]
+#![allow(clippy::needless_return)]
+#![allow(clippy::missing_safety_doc)]
+#![allow(clippy::unwrap_or_default)]
+#![allow(clippy::assertions_on_constants)]
+#![allow(clippy::if_same_then_else)]
 
 pub mod adapter_manager;
 pub mod autodetect;
@@ -136,6 +141,7 @@ pub mod paged_attention;
 pub mod policy_store;
 pub mod qat;
 pub mod quality;
+#[cfg(feature = "quantize")]
 pub mod quantize;
 pub mod reasoning_bank;
 pub mod reflection;
@@ -342,6 +348,7 @@ pub use qat::{
     PiQuantDifferentiable, QatConfig, QatLossWeights, QuantGranularity, SteVariant,
     UniformQuantizer, DEFAULT_BITS, DEFAULT_QAT_LR, MAX_BITS, MIN_BITS,
 };
+#[cfg(feature = "quantize")]
 pub use quantize::{
     // Incoherence transform (ADR-090 Phase 3)
     apply_incoherence,

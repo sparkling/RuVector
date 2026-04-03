@@ -112,13 +112,16 @@ tracing-subscriber = { workspace = true }
 
 [features]
 # Default includes candle for working inference out of the box
-default = ["async-runtime", "candle", "routing-metrics"]
+default = ["async-runtime", "candle", "routing-metrics", "quantize"]
 async-runtime = ["tokio", "tokio-stream"]
 
 # Minimal build without inference (for embedding/library use only)
 minimal = ["async-runtime"]
 wasm = []
 wasm-simd = []
+
+# Quantization support (requires platform-specific SIMD)
+quantize = []
 
 # P5 Optimization: Optional routing metrics collection
 # Disable for production to avoid Instant::now() syscall overhead (~0.04-0.08µs)
@@ -230,6 +233,11 @@ harness = false
 name = "moe_bench"
 harness = false
 
+[[bench]]
+name = "turbo_quant_bench"
+harness = false
+required-features = ["quantize"]
+
 # Test configurations
 [[test]]
 name = "real_model_test"
@@ -252,3 +260,29 @@ path = "examples/benchmark_model.rs"
 name = "run_eval"
 path = "examples/run_eval.rs"
 required-features = ["async-runtime"]
+
+# Lint configuration for the package
+[lints.clippy]
+# Allow common patterns in test code for readability
+manual_range_contains = "allow"
+needless_range_loop = "allow"
+useless_vec = "allow"
+unnecessary_cast = "allow"
+excessive_precision = "allow"
+# Allow patterns that are clearer with explicit form
+manual_slice_size_calculation = "allow"
+manual_ok_err = "allow"
+explicit_auto_deref = "allow"
+redundant_pattern_matching = "allow"
+
+[lints.rust]
+# Allow common patterns in test code
+unused_imports = "allow"
+unused_variables = "allow"
+dead_code = "allow"
+unreachable_code = "allow"
+unused_parens = "allow"
+
+[lints.rustdoc]
+# Allow broken intra-doc links (these are often array notation in doc comments)
+broken_intra_doc_links = "allow"

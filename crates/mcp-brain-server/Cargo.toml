@@ -12,6 +12,14 @@ publish = false
 name = "mcp-brain-server"
 path = "src/main.rs"
 
+[[bin]]
+name = "ruvbrain-sse"
+path = "src/bin/ruvbrain_sse.rs"
+
+[[bin]]
+name = "ruvbrain-worker"
+path = "src/bin/ruvbrain_worker.rs"
+
 [dependencies]
 # Web framework
 axum = { version = "0.7", features = ["json", "query"] }
@@ -23,8 +31,9 @@ tower-http = { version = "0.6", features = ["cors", "trace", "limit", "set-heade
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
-# HTTP client (for Firestore/GCS REST APIs)
-reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+# HTTP client (for Firestore/GCS REST APIs + Common Crawl)
+# Using native-tls for compatibility with servers that don't send TLS close_notify
+reqwest = { version = "0.12", features = ["json", "native-tls"], default-features = false }
 
 # Crypto
 sha2 = "0.10"
@@ -49,11 +58,13 @@ urlencoding = "2"
 
 # RuVector Cognitive Stack
 sona = { package = "ruvector-sona", path = "../sona", features = ["serde-support"] }
-ruvector-mincut = { path = "../ruvector-mincut" }
+ruvector-mincut = { path = "../ruvector-mincut", features = ["canonical"] }
 ruvector-nervous-system = { path = "../ruvector-nervous-system" }
 ruvector-domain-expansion = { path = "../ruvector-domain-expansion" }
 ruvector-delta-core = { path = "../ruvector-delta-core" }
 ruvector-solver = { path = "../ruvector-solver", features = ["forward-push"] }
+ruvector-sparsifier = { path = "../ruvector-sparsifier" }
+ruvector-consciousness = { path = "../ruvector-consciousness", features = ["phi"], default-features = false }
 
 # RuvLLM Embeddings (HashEmbedder + RlmEmbedder — pure Rust, no model download)
 ruvllm = { path = "../ruvllm", default-features = false, features = ["minimal"] }
@@ -69,5 +80,12 @@ rvf-runtime = { path = "../rvf/rvf-runtime" }
 # Note: temporal-compare is binary-only (no lib.rs) — cannot be used as library dep
 nanosecond-scheduler = "0.1"
 temporal-attractor-studio = "0.1"
-temporal-neural-solver = "0.1"
+temporal-neural-solver = { version = "0.1", optional = true }  # x86_64 only
 strange-loop = "0.3"
+
+# ndarray — required for temporal-neural-solver Array1 interop (ADR-094)
+ndarray = "0.15"
+
+[features]
+default = []
+x86-simd = ["temporal-neural-solver"]  # Enable on x86_64 systems

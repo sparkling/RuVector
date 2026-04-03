@@ -4,10 +4,14 @@ FROM rustlang/rust:nightly-bookworm AS builder
 
 WORKDIR /app
 
-# Install build dependencies
+# Pin to a known-good nightly (2026-03-20) to avoid nalgebra ICE on newer nightlies
+RUN rustup default nightly-2026-03-20
+
+# Install build dependencies (native-tls requires OpenSSL)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     libssl-dev \
+    openssl \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy minimal workspace file (only includes required crates)
@@ -23,6 +27,8 @@ COPY crates/ruvector-nervous-system ./crates/ruvector-nervous-system
 COPY crates/ruvector-domain-expansion ./crates/ruvector-domain-expansion
 COPY crates/ruvector-delta-core ./crates/ruvector-delta-core
 COPY crates/ruvector-solver ./crates/ruvector-solver
+COPY crates/ruvector-sparsifier ./crates/ruvector-sparsifier
+COPY crates/ruvector-consciousness ./crates/ruvector-consciousness
 COPY crates/ruvllm ./crates/ruvllm
 COPY crates/ruvector-core ./crates/ruvector-core
 COPY crates/rvf ./crates/rvf
@@ -55,6 +61,15 @@ RUN sed -i '/ruvector-graph\s*=/d' crates/ruvector-mincut/Cargo.toml && \
     sed -i '/\[\[bench\]\]/,/^$/d' crates/ruvector-domain-expansion/Cargo.toml && \
     sed -i '/\[\[example\]\]/,/^$/d' crates/ruvector-delta-core/Cargo.toml && \
     sed -i '/\[\[bench\]\]/,/^$/d' crates/ruvector-delta-core/Cargo.toml && \
+    sed -i '/\[\[example\]\]/,/^$/d' crates/ruvector-sparsifier/Cargo.toml && \
+    sed -i '/\[\[bench\]\]/,/^$/d' crates/ruvector-sparsifier/Cargo.toml && \
+    sed -i '/\[\[bench\]\]/,/^$/d' crates/ruvector-consciousness/Cargo.toml && \
+    sed -i '/ruvector-coherence\s*=/d' crates/ruvector-consciousness/Cargo.toml && \
+    sed -i '/ruvector-cognitive-container\s*=/d' crates/ruvector-consciousness/Cargo.toml && \
+    sed -i '/ruvector-math\s*=/d' crates/ruvector-consciousness/Cargo.toml && \
+    sed -i 's/"coherence-accel",\s*//g' crates/ruvector-consciousness/Cargo.toml && \
+    sed -i 's/"witness",\s*//g' crates/ruvector-consciousness/Cargo.toml && \
+    sed -i 's/"math-accel",\s*//g' crates/ruvector-consciousness/Cargo.toml && \
     find crates/rvf -name "Cargo.toml" -exec sed -i '/\[\[example\]\]/,/^$/d' {} \; && \
     find crates/rvf -name "Cargo.toml" -exec sed -i '/\[\[bench\]\]/,/^$/d' {} \; && \
     find crates/sona -name "Cargo.toml" -exec sed -i '/\[\[example\]\]/,/^$/d' {} \; && \
@@ -64,7 +79,7 @@ RUN sed -i '/ruvector-graph\s*=/d' crates/ruvector-mincut/Cargo.toml && \
     find crates/rvf -name "*.rs" -exec sed -i 's/.is_multiple_of(\([^)]*\))/ % \1 == 0/g' {} \; && \
     sed -i 's/features = \["storage", "hnsw", "parallel", "simd"\]/features = ["storage", "hnsw", "parallel"]/g' crates/ruvllm/Cargo.toml && \
     sed -i 's/pub mod simd_intrinsics;/\/\/ pub mod simd_intrinsics;/g' crates/ruvector-core/src/lib.rs && \
-    sed -i 's/pub mod pi_quant_simd;/\/\/ pub mod pi_quant_simd;/g' crates/ruvllm/src/quantize/mod.rs
+    sed -i 's/crate::simd_intrinsics::manhattan_distance_simd(a, b)/a.iter().zip(b.iter()).map(|(x, y)| (x - y).abs()).sum()/g' crates/ruvector-core/src/distance.rs
 
 # Build only mcp-brain-server in release mode
 RUN cargo build --release -p mcp-brain-server
@@ -74,6 +89,7 @@ FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
+    libssl3 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy binary from builder

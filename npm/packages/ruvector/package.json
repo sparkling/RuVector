@@ -1,7 +1,7 @@
 {
   "name": "ruvector",
-  "version": "0.2.12",
-  "description": "High-performance vector database for Node.js with automatic native/WASM fallback",
+  "version": "0.2.19",
+  "description": "Self-learning vector database for Node.js — hybrid search, Graph RAG, FlashAttention-3, DiskANN, 50+ attention mechanisms",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
@@ -46,6 +46,12 @@
     "shared-intelligence",
     "mcp",
     "edge-computing",
+    "graph-rag",
+    "diskann",
+    "hybrid-search",
+    "colbert",
+    "turboquant",
+    "mamba",
     "pi-brain",
     "identity",
     "pi-key",
@@ -79,20 +85,22 @@
     "@types/node": "^20.10.5",
     "typescript": "^5.3.3"
   },
-  "peerDependencies": {
-    "@ruvector/ruvllm": ">=2.0.0",
-    "@ruvector/router": ">=0.1.0"
-  },
-  "peerDependenciesMeta": {
-    "@ruvector/ruvllm": { "optional": true },
-    "@ruvector/router": { "optional": true }
-  },
   "files": [
     "bin/",
     "dist/",
     "README.md",
     "LICENSE"
   ],
+  "peerDependencies": {
+    "@ruvector/pi-brain": ">=0.1.0",
+    "@ruvector/ruvllm": ">=2.0.0",
+    "@ruvector/router": ">=0.1.0"
+  },
+  "peerDependenciesMeta": {
+    "@ruvector/pi-brain": { "optional": true },
+    "@ruvector/ruvllm": { "optional": true },
+    "@ruvector/router": { "optional": true }
+  },
   "engines": {
     "node": ">=18.0.0"
   }

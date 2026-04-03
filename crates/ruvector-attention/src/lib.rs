@@ -8,6 +8,10 @@
 //! - Graph attention for GNN applications
 //! - Geometric attention in hyperbolic spaces
 //! - Sparse attention patterns
+//! - FlashAttention-3 IO-aware tiled attention
+//! - Multi-Head Latent Attention (MLA) with KV-cache compression
+//! - Selective State Space Models (Mamba)
+//! - Speculative decoding with draft/verify
 //!
 //! ## Features
 //!
@@ -68,6 +72,7 @@ pub mod unified_report;
 pub mod sheaf;
 
 // Re-export main types
+pub use attention::{MLACache, MLAConfig, MLALayer, MemoryComparison};
 pub use attention::{MultiHeadAttention, ScaledDotProductAttention};
 pub use config::{AttentionConfig, GraphAttentionConfig, SparseAttentionConfig};
 pub use error::{AttentionError, AttentionResult};

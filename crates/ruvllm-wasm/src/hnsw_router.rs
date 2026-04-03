@@ -45,7 +45,55 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use wasm_bindgen::prelude::*;
+
+/// Simple xorshift64 PRNG for WASM-safe random number generation
+/// Avoids js_sys::Math::random() which can cause type mismatches in wasm-bindgen
+static PRNG_STATE: AtomicU64 = AtomicU64::new(0x853c49e6748fea9b);
+
+fn wasm_random_u64() -> u64 {
+    let mut s = PRNG_STATE.load(Ordering::Relaxed);
+    // Mix in some additional entropy on first call
+    if s == 0x853c49e6748fea9b {
+        s = s.wrapping_add(0x9e3779b97f4a7c15);
+    }
+    // xorshift64
+    s ^= s >> 12;
+    s ^= s << 25;
+    s ^= s >> 27;
+    PRNG_STATE.store(s, Ordering::Relaxed);
+    s.wrapping_mul(0x2545F4914F6CDD1D)
+}
+
+/// WASM-safe natural log approximation using integer bit manipulation
+/// Avoids calling external log() which causes WASM type mismatches
+/// Uses the fact that for IEEE 754 doubles: log(x) ≈ (bits - bias) * scale
+#[inline(never)]
+fn wasm_ln(x: f64) -> f64 {
+    if x <= 0.0 {
+        return f64::NEG_INFINITY;
+    }
+    if x == 1.0 {
+        return 0.0;
+    }
+
+    // Use bit manipulation to approximate ln
+    // ln(x) ≈ (exponent - 1023) * ln(2) + ln(1 + mantissa/2^52)
+    let bits = x.to_bits();
+    let exponent = ((bits >> 52) & 0x7FF) as i64 - 1023;
+    let mantissa = (bits & 0x000F_FFFF_FFFF_FFFF) as f64 / (1u64 << 52) as f64;
+
+    // ln(2) ≈ 0.693147180559945
+    const LN2: f64 = 0.693147180559945;
+
+    // Approximate ln(1+m) using Padé approximant for m in [0, 1]
+    // ln(1+m) ≈ m * (6 + m) / (6 + 4*m) for better accuracy
+    let m = mantissa;
+    let ln_1_plus_m = m * (6.0 + m) / (6.0 + 4.0 * m);
+
+    (exponent as f64) * LN2 + ln_1_plus_m
+}
 
 /// Maximum connections per node in the HNSW graph (M parameter)
 const DEFAULT_M: usize = 16;
@@ -210,9 +258,36 @@ impl HnswGraph {
     }
 
     /// Select layer for new node using exponential decay
+    /// Uses integer-based geometric distribution to avoid WASM f64::ln() issues
+    #[inline(never)]
     fn select_layer(&self) -> usize {
-        let ml = 1.0 / (self.m as f64).ln();
-        let level = (-js_sys::Math::random().ln() * ml).floor() as usize;
+        // Use geometric distribution via integer math to avoid ln() calls
+        // For M=16, probability of each layer is 1/M
+        // Layer L has probability (1/M)^L * (1 - 1/M)
+        let r = wasm_random_u64();
+
+        // Count leading zeros gives us geometric distribution
+        // Probability of layer L is 2^(-L-1)
+        // Scale by log2(M) to match HNSW distribution
+        let leading_zeros = r.leading_zeros() as usize;
+
+        // Map leading zeros to layer: layer = floor(leading_zeros / log2(M))
+        // For M=16, log2(16) = 4
+        let m_log2 = if self.m <= 2 {
+            1
+        } else if self.m <= 4 {
+            2
+        } else if self.m <= 8 {
+            3
+        } else if self.m <= 16 {
+            4
+        } else if self.m <= 32 {
+            5
+        } else {
+            6
+        };
+
+        let level = leading_zeros / m_log2;
         level.min(self.max_layer + 1)
     }
 
@@ -243,7 +318,14 @@ impl HnswGraph {
             self.layers.push(HashMap::new());
         }
 
+        // CRITICAL: Push pattern FIRST so it exists when connect_node runs
+        // This fixes index out of bounds when entry_point is set to node_id
+        let embedding = pattern.embedding.clone();
+        let was_empty = self.patterns.is_empty();
+        self.patterns.push(pattern);
+
         // Update max layer and entry point if needed
+        // Now safe because patterns[node_id] exists
         if layer > self.max_layer {
             self.max_layer = layer;
             self.entry_point = Some(node_id);
@@ -260,13 +342,11 @@ impl HnswGraph {
         }
 
         // Connect the new node to the graph
-        if self.patterns.is_empty() {
+        if was_empty {
             self.entry_point = Some(node_id);
         } else {
-            self.connect_node(node_id, &pattern.embedding, layer);
+            self.connect_node(node_id, &embedding, layer);
         }
-
-        self.patterns.push(pattern);
     }
 
     /// Connect a new node to existing nodes in the graph
@@ -351,6 +431,11 @@ impl HnswGraph {
         ef: usize,
         layer: usize,
     ) -> Vec<(usize, f32)> {
+        // Safety: Return empty if patterns is empty or entry_point is invalid
+        if self.patterns.is_empty() || entry_point >= self.patterns.len() {
+            return vec![];
+        }
+
         let mut visited = vec![false; self.patterns.len()];
         let mut candidates = Vec::new();
         let mut best = Vec::new();
@@ -379,6 +464,10 @@ impl HnswGraph {
             // Explore neighbors
             if let Some(node) = self.layers[layer].get(&curr_id) {
                 for &neighbor_id in &node.neighbors {
+                    // Safety: Skip invalid neighbor indices
+                    if neighbor_id >= self.patterns.len() {
+                        continue;
+                    }
                     if !visited[neighbor_id] {
                         visited[neighbor_id] = true;
                         let sim =
@@ -415,29 +504,37 @@ impl HnswGraph {
             return Vec::new();
         }
 
-        let entry_point = self.entry_point.unwrap();
+        // Safety: Return empty if entry_point is not set
+        let entry_point = match self.entry_point {
+            Some(ep) if ep < self.patterns.len() => ep,
+            _ => return Vec::new(),
+        };
         let mut curr = entry_point;
 
         // Search from top layer down to layer 1
         for l in (1..=self.max_layer).rev() {
-            curr = self.search_layer(query, curr, 1, l)[0].0;
+            let layer_results = self.search_layer(query, curr, 1, l);
+            if layer_results.is_empty() {
+                // Fallback to linear search if HNSW fails
+                break;
+            }
+            curr = layer_results[0].0;
         }
 
         // Search layer 0 with ef_search
         let results = self.search_layer(query, curr, self.ef_search.max(k), 0);
 
-        // Convert to RouteResultWasm
+        // Convert to RouteResultWasm, filtering invalid indices
         results
             .into_iter()
             .take(k)
-            .map(|(id, score)| {
-                let pattern = &self.patterns[id];
-                RouteResultWasm {
+            .filter_map(|(id, score)| {
+                self.patterns.get(id).map(|pattern| RouteResultWasm {
                     name: pattern.name.clone(),
                     score,
                     metadata: pattern.metadata.clone(),
                     embedding: pattern.embedding.clone(),
-                }
+                })
             })
             .collect()
     }

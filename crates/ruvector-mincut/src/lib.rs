@@ -218,6 +218,7 @@ pub mod jtree;
 
 // Internal modules
 mod core;
+pub mod time_compat;
 
 // Optional feature-gated modules
 #[cfg(feature = "monitoring")]
@@ -390,6 +391,23 @@ pub use canonical::{
     CanonicalMinCutImpl, FixedWeight, WitnessReceipt,
 };
 
+#[cfg(feature = "canonical")]
+pub use canonical::source_anchored::{
+    canonical_mincut, make_receipt, receipts_agree, CanonicalMinCutResult as SourceAnchoredResult,
+    SourceAnchoredConfig, SourceAnchoredCut, SourceAnchoredMinCut, SourceAnchoredReceipt,
+};
+
+#[cfg(feature = "canonical")]
+pub use canonical::tree_packing::{
+    canonical_mincut_fast, GomoryHuEdge, GomoryHuTree, TreeMinCutResult,
+};
+
+#[cfg(feature = "canonical")]
+pub use canonical::dynamic::{
+    DynamicMinCut as DynamicCanonicalMinCut, DynamicMinCutConfig as DynamicCanonicalConfig,
+    EdgeMutation,
+};
+
 #[cfg(feature = "monitoring")]
 pub use monitoring::{
     EventType, MinCutEvent, MinCutMonitor, MonitorBuilder, MonitorConfig, MonitorMetrics, Threshold,
@@ -509,7 +527,9 @@ pub mod prelude {
     #[cfg(feature = "canonical")]
     pub use crate::{
         CactusCycle, CactusEdge, CactusGraph, CactusVertex, CanonicalCutResult, CanonicalMinCut,
-        CanonicalMinCutImpl, FixedWeight, WitnessReceipt,
+        CanonicalMinCutImpl, DynamicCanonicalConfig, DynamicCanonicalMinCut, EdgeMutation,
+        FixedWeight, GomoryHuTree, SourceAnchoredConfig, SourceAnchoredCut,
+        SourceAnchoredMinCut, SourceAnchoredReceipt, TreeMinCutResult, WitnessReceipt,
     };
 
     #[cfg(feature = "jtree")]

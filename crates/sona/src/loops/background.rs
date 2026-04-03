@@ -27,7 +27,7 @@ pub struct BackgroundLoopConfig {
 impl Default for BackgroundLoopConfig {
     fn default() -> Self {
         Self {
-            min_trajectories: 100,
+            min_trajectories: 10, // Was 100; lowered so patterns crystallize from fewer trajectories
             base_lora_lr: 0.0001,
             ewc_lambda: 1000.0,
             extraction_interval: Duration::from_secs(3600),
@@ -38,7 +38,7 @@ impl Default for BackgroundLoopConfig {
 impl From<&SonaConfig> for BackgroundLoopConfig {
     fn from(config: &SonaConfig) -> Self {
         Self {
-            min_trajectories: 100,
+            min_trajectories: 10, // Was 100; lowered so patterns crystallize from fewer trajectories
             base_lora_lr: config.base_lora_lr,
             ewc_lambda: config.ewc_lambda,
             extraction_interval: Duration::from_millis(config.background_interval_ms),
@@ -105,9 +105,19 @@ impl BackgroundLoop {
     }
 
     /// Run background learning cycle
-    pub fn run_cycle(&self, trajectories: Vec<QueryTrajectory>) -> BackgroundResult {
-        if trajectories.len() < self.config.min_trajectories {
-            return BackgroundResult::skipped("insufficient trajectories");
+    ///
+    /// If `force` is true, bypasses the minimum trajectory check (for forceLearn API)
+    pub fn run_cycle(&self, trajectories: Vec<QueryTrajectory>, force: bool) -> BackgroundResult {
+        if !force && trajectories.len() < self.config.min_trajectories {
+            return BackgroundResult::skipped(&format!(
+                "insufficient trajectories ({} < {} minimum, use forceLearn to bypass)",
+                trajectories.len(),
+                self.config.min_trajectories
+            ));
+        }
+
+        if trajectories.is_empty() {
+            return BackgroundResult::skipped("no trajectories to process");
         }
 
         let start = Instant::now();

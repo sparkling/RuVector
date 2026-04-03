@@ -1,4 +1,4 @@
-# RuVector — A Self-Learning, Agentic Operating System
+# RuVector — A Self-Learning, Vector Memory & Agentic Operating System
 [![CES 2026 Innovation Award](https://img.shields.io/badge/🏅_CES_2026-Innovation_Award-gold.svg)](https://cognitum.one)
 [![GitHub Trending](https://img.shields.io/badge/🔥_GitHub-Trending-orange.svg)](https://github.com/ruvnet/ruvector)
 
@@ -32,15 +32,22 @@ User Query → [SONA Engine] → Model Response → User Feedback
 ```
 
 <details>
-<summary>🔍 RuVector vs Typical Vector Databases (20 differences)</summary>
+<summary>🔍 RuVector vs Typical Vector Databases (25 differences)</summary>
 
 | | RuVector | Typical Vector DB |
 |---|---|---|
 | **Self-Learning & Optimization** | | |
 | [Search quality](./crates/ruvector-gnn) | 🧠 GNN learns from every query — results improve over time | Static — same results every time |
 | [Self-optimizing](./crates/sona) | ⚡ SONA auto-tunes routing, ranking, and compression to your workload | Manual tuning required |
-| [46 attention mechanisms](./crates/ruvector-attention) | 🎯 Flash, linear, graph, hyperbolic, [mincut-gated](./crates/ruvector-attn-mincut) (cuts compute 50%) | Basic similarity only |
+| [50+ attention mechanisms](./crates/ruvector-attention) | 🎯 FlashAttention-3, MLA, Mamba SSM, linear, graph, hyperbolic, [mincut-gated](./crates/ruvector-attn-mincut) | Basic similarity only |
 | [Transfer learning](./crates/ruvector-domain-expansion) | 🔄 Knowledge transfers across domains — new tasks bootstrap from past learning | Start from scratch each time |
+| **Search & Retrieval** | | |
+| [Hybrid search](./crates/ruvector-core) | 🔍 Sparse vectors + dense vectors with RRF fusion — 20-49% better retrieval | Keyword OR vector, not both |
+| [Graph RAG](./crates/ruvector-core) | 📊 Knowledge graph + community detection for multi-hop queries — 30-60% improvement | Naive chunk-based RAG |
+| [DiskANN](./crates/ruvector-core) | 💾 Billion-scale SSD-backed ANN with <10ms latency via Vamana graph | Memory-only indexes |
+| [TurboQuant](./crates/ruvllm) | ⚡ 2-4 bit KV-cache quantization — 6-8x memory savings with <0.5% quality loss | No quantization or 8-bit only |
+| [ColBERT multi-vector](./crates/ruvector-core) | 🎯 Per-token late interaction retrieval (MaxSim) for fine-grained matching | Single-vector only |
+| [Matryoshka embeddings](./crates/ruvector-core) | 🪆 Adaptive-dimension search — coarse-to-fine funnel for speed with minimal recall loss | Fixed dimensions only |
 | **Graph & Relationships** | | |
 | [Graph queries](./crates/ruvector-graph) | 🔗 Full Cypher engine — `MATCH (a)-[:KNOWS]->(b)` like Neo4j | Flat list of results |
 | [Graph transformers](./crates/ruvector-graph-transformer) | 🔬 8 verified modules: physics, bio, manifold, temporal, economic | No graph support |
@@ -48,6 +55,7 @@ User Query → [SONA Engine] → Model Response → User Feedback
 | **AI & Compute** | | |
 | [Local LLMs](./crates/ruvllm) | 🤖 Run models on your hardware — Metal, CUDA, WebGPU, no API costs | Cloud API required (pay per call) |
 | [Sublinear solvers](./crates/ruvector-solver) | 📐 O(log n) PageRank, spectral methods, sparse linear systems | Not available |
+| [Graph sparsifier](./crates/ruvector-sparsifier) | 🕸️ Keeps a small shadow graph that tracks the full graph's structure in real time | Not available |
 | [Genomics](./examples/dna) | 🧬 Variant calling, protein translation, HNSW k-mer search in 12 ms | Not available |
 | [Quantum coherence](./crates/ruqu) | ⚛️ Error correction via dynamic min-cut optimization | Not available |
 | **Database & Platform** | | |
@@ -79,6 +87,27 @@ User Query → [SONA Engine] → Model Response → User Feedback
 | 7 | [**Collections**](./crates/ruvector-collections) | Multi-tenant, schema-managed collections — isolate data per customer or project |
 | 8 | [**Snapshots**](./crates/ruvector-snapshot) | Point-in-time backups — restore your database to any previous state |
 
+**Advanced Search & Retrieval** *(new in v2.1.0)*
+| # | Capability | What It Does |
+|---|------------|--------------|
+| 8a | [**Hybrid search (RRF)**](./crates/ruvector-core) | Sparse + dense vector fusion with Reciprocal Rank Fusion — 20-49% retrieval improvement |
+| 8b | [**Graph RAG**](./crates/ruvector-core) | Knowledge graph + Leiden community detection + local/global/hybrid search — 30-60% better on complex queries |
+| 8c | [**DiskANN / Vamana**](./crates/ruvector-core) | SSD-backed billion-scale ANN with alpha-RNG pruning and LRU page cache — <10ms latency |
+| 8d | [**ColBERT multi-vector**](./crates/ruvector-core) | Per-token late interaction retrieval with MaxSim, AvgSim, SumMax scoring |
+| 8e | [**Matryoshka embeddings**](./crates/ruvector-core) | Adaptive-dimension search with funnel and cascade modes — speed with minimal recall loss |
+| 8f | [**OPQ**](./crates/ruvector-core) | Optimized Product Quantization with learned rotation — 10-30% error reduction vs standard PQ |
+| 8g | [**LSM compaction**](./crates/ruvector-core) | Log-Structured Merge-tree for write-heavy vector workloads with bloom filters |
+| 8h | [**GraphMAE**](./crates/ruvector-gnn) | Graph Masked Autoencoder — self-supervised node representation learning with GAT encoder |
+| 8i | [**TurboQuant**](./crates/ruvllm) | 2-4 bit asymmetric KV-cache quantization — 6-8x memory reduction, <0.5% perplexity loss, H2O/PyramidKV eviction |
+
+**Continuous Training & Optimization** *(ADR-129)*
+| # | Capability | What It Does |
+|---|------------|--------------|
+| 8j | [**Nightly training**](./scripts/training/) | Automated nightly LoRA fine-tuning from brain learnings — models improve every day |
+| 8k | [**Release gates**](./scripts/training/release_gate.py) | 7 automated quality checks (code quality, routing accuracy, perplexity, speed, contamination) — prevents shipping regressions |
+| 8l | [**TurboQuant profiling**](./crates/ruvllm/src/quantize/turboquant_profile.rs) | Per-layer KV-cache bit-width optimization with `.turboquant.json` sidecar configs |
+| 8m | [**Training corpus**](./data/training/) | 230+ records from brain memories (pi.ruv.io) + architecture decisions + Claude routing examples |
+
 **Distributed Systems**
 | # | Capability | What It Does |
 |---|------------|--------------|
@@ -95,7 +124,7 @@ User Query → [SONA Engine] → Model Response → User Feedback
 | 15 | [**Run LLMs locally**](./crates/ruvllm) | Load GGUF models and run inference on your hardware — Metal, CUDA, ANE, WebGPU |
 | 16 | [**RuvLTRA models**](https://huggingface.co/ruv/ruvltra) | Pre-trained GGUF for routing and embeddings in under 10 ms |
 | 17 | [**SONA learning**](./crates/sona) | Self-Optimizing Neural Architecture — LoRA fine-tuning + EWC++ memory preservation |
-| 18 | [**46 attention mechanisms**](./crates/ruvector-attention) | Flash, linear, graph, hyperbolic, mincut-gated (cuts compute 50%) |
+| 18 | [**50+ attention mechanisms**](./crates/ruvector-attention) | FlashAttention-3, MLA, Mamba SSM, KV-cache compression, speculative decoding, graph, hyperbolic, mincut-gated |
 | 19 | [**Semantic routing**](./crates/ruvector-router-core) | Route AI requests to the right model or handler using FastGRNN neural inference |
 | 20 | [**Sparse inference**](./crates/ruvector-sparse-inference) | PowerInfer-style engine — only activate the neurons you need, 2-10x faster on edge |
 | 21 | [**Tiny Dancer**](./crates/ruvector-tiny-dancer-core) | Production-grade agent routing with FastGRNN — lightweight alternative to full LLM |
@@ -148,9 +177,10 @@ User Query → [SONA Engine] → Model Response → User Feedback
 | 51 | [**FPGA transformer**](./crates/ruvector-fpga-transformer) | Hardware-accelerated transformer inference on programmable chips |
 | 52 | [**Quantum coherence**](./crates/ruQu) | Error correction via dynamic min-cut optimization for quantum circuits |
 | 53 | [**Sublinear solvers**](./crates/ruvector-solver) | 8 algorithms (Neumann, CG, Forward Push, TRUE, BMSSP) — O(log n) to O(sqrt(n)) |
-| 54 | [**Mincut-gated transformer**](./crates/ruvector-mincut-gated-transformer) | Dynamic attention that prunes irrelevant connections using graph min-cut |
-| 55 | [**Nervous system**](./crates/ruvector-nervous-system) | 5-layer bio-inspired adaptive system with spiking networks and BTSP learning |
-| 56 | [**Prime Radiant**](./crates/prime-radiant) | Coherence engine using sheaf Laplacian math for AI safety and hallucination detection |
+| 54 | [**Graph sparsifier**](./crates/ruvector-sparsifier) | Compressed shadow graph preserving spectral properties — O(n log n) edges instead of O(n²) |
+| 55 | [**Mincut-gated transformer**](./crates/ruvector-mincut-gated-transformer) | Dynamic attention that prunes irrelevant connections using graph min-cut |
+| 56 | [**Nervous system**](./crates/ruvector-nervous-system) | 5-layer bio-inspired adaptive system with spiking networks and BTSP learning |
+| 57 | [**Prime Radiant**](./crates/prime-radiant) | Coherence engine using sheaf Laplacian math for AI safety and hallucination detection |
 
 **Genomics & Health** ([rvDNA](./examples/dna))
 | # | Capability | What It Does |
@@ -224,7 +254,7 @@ RuVector isn't a database you add to your stack — it's the entire stack. Self-
 | | Layer | Replaces | What It Does |
 |---|-------|----------|--------------|
 | 🤖 | [**AI Runtime**](./crates/ruvllm/README.md) | llama.cpp, vLLM, Ollama | ruvllm — GGUF models, MicroLoRA (<1 ms), speculative decoding, continuous batching, WASM |
-| 🧠 | [**ML Framework**](./crates/ruvector-attention/README.md) | PyTorch, TensorFlow | 46 attention types, 8 graph transformers, spiking networks, sparse inference, sublinear solvers |
+| 🧠 | [**ML Framework**](./crates/ruvector-attention/README.md) | PyTorch, TensorFlow | 50+ attention types, FlashAttention-3, MLA, Mamba SSM, Graph RAG, DiskANN, 8 graph transformers, sublinear solvers |
 | 🔬 | [**Coherence**](./crates/ruvector-mincut/README.md) | Manual testing, guardrails | Min-cut finds the weakest links in any network — detects AI drift, prunes wasted compute (50% reduction), keeps agents in sync |
 | 🧬 | [**Domain Models**](./crates/ruvector-domain-expansion/README.md) | Custom ML pipelines | Genomics (DNA variant calling), physics simulation, economic modeling, biological networks |
 
@@ -613,6 +643,29 @@ cargo add ruvector-solver --features all-algorithms
 
 - **177 tests** | 5 Criterion benchmarks | WASM + NAPI bindings
 - **ADR documentation**: [docs/research/sublinear-time-solver/](./docs/research/sublinear-time-solver/)
+
+</details>
+
+<details>
+<summary><strong>Graph Sparsifier</strong> — a small graph that behaves like the big one</summary>
+
+**[ruvector-sparsifier](./crates/ruvector-sparsifier/README.md)** maintains a compressed "shadow graph" that preserves the structural properties of a much larger graph. Think of it as a lossy summary: instead of storing every connection between millions of nodes, the sparsifier keeps only the most important edges — enough to answer questions about cuts, connectivity, and flow almost as accurately as the full graph, but with far less memory and compute.
+
+It updates incrementally as edges are added or removed, so the compressed version stays current without rebuilding from scratch. A built-in auditor periodically checks that the approximation is still good; if quality drifts, it triggers an automatic rebuild.
+
+```bash
+cargo add ruvector-sparsifier
+```
+
+| Component | What it does |
+|-----------|-------------|
+| **Backbone** | Spanning forest (union-find) that guarantees connectivity is never lost |
+| **Importance scorer** | Random walks estimate which edges matter most for the graph's structure |
+| **Spectral sampler** | Keeps edges proportional to their importance, reweights to stay unbiased |
+| **Auditor** | Random probes verify the compressed graph still matches the original |
+
+- **49 tests** | Criterion benchmarks | WASM bindings
+- **Research**: [docs/research/spectral-sparsification/](./docs/research/spectral-sparsification/)
 
 </details>
 
@@ -1547,7 +1600,7 @@ All crates are published to [crates.io](https://crates.io) under the `ruvector-*
 
 | Crate | Description | crates.io |
 |-------|-------------|-----------|
-| [ruvector-attention](./crates/ruvector-attention) | 46 attention mechanisms (Flash, Hyperbolic, MoE, Graph) | [![crates.io](https://img.shields.io/crates/v/ruvector-attention.svg)](https://crates.io/crates/ruvector-attention) |
+| [ruvector-attention](./crates/ruvector-attention) | 50+ attention mechanisms (FlashAttention-3, MLA, Mamba SSM, KV-cache, speculative decoding, MoE, Graph) | [![crates.io](https://img.shields.io/crates/v/ruvector-attention.svg)](https://crates.io/crates/ruvector-attention) |
 | [ruvector-attention-node](./crates/ruvector-attention-node) | Node.js bindings for attention mechanisms | [![crates.io](https://img.shields.io/crates/v/ruvector-attention-node.svg)](https://crates.io/crates/ruvector-attention-node) |
 | [ruvector-attention-wasm](./crates/ruvector-attention-wasm) | WASM bindings for browser attention | [![crates.io](https://img.shields.io/crates/v/ruvector-attention-wasm.svg)](https://crates.io/crates/ruvector-attention-wasm) |
 | [ruvector-attention-cli](./crates/ruvector-attention-cli) | CLI for attention testing and benchmarking | [![crates.io](https://img.shields.io/crates/v/ruvector-attention-cli.svg)](https://crates.io/crates/ruvector-attention-cli) |

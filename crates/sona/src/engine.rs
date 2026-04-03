@@ -133,6 +133,11 @@ impl SonaEngine {
         self.coordinator.stats()
     }
 
+    /// Get coordinator reference for state serialization (fixes #274)
+    pub fn coordinator(&self) -> &LoopCoordinator {
+        &self.coordinator
+    }
+
     /// Enable/disable engine
     pub fn set_enabled(&mut self, enabled: bool) {
         self.enabled = enabled;
@@ -380,7 +385,7 @@ mod tests {
     fn test_force_learn() {
         let engine = SonaEngine::new(256);
 
-        for i in 0..150 {
+        for _i in 0..150 {
             let mut builder = engine.begin_trajectory(vec![0.1; 256]);
             builder.add_step(vec![0.5; 256], vec![], 0.8);
             engine.end_trajectory(builder, 0.8);
@@ -388,6 +393,27 @@ mod tests {
 
         let result = engine.force_learn();
         assert!(result.contains("150 trajectories"));
+    }
+
+    #[test]
+    fn test_force_learn_with_few_trajectories() {
+        // Test that forceLearn works even with fewer than min_trajectories (100)
+        let engine = SonaEngine::new(64);
+
+        // Only record 10 trajectories (below the 100 minimum)
+        for _i in 0..10 {
+            let mut builder = engine.begin_trajectory(vec![0.1; 64]);
+            builder.add_step(vec![0.5; 64], vec![], 0.8);
+            engine.end_trajectory(builder, 0.8);
+        }
+
+        let result = engine.force_learn();
+        // Should process 10 trajectories (not "insufficient trajectories")
+        assert!(
+            result.contains("10 trajectories"),
+            "Expected '10 trajectories' but got: {}",
+            result
+        );
     }
 
     #[test]

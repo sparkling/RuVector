@@ -2,12 +2,34 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use uuid::Uuid;
 
-/// Brain memory categories
+// ── Platform-specific stubs (temporal-neural-solver is x86_64-only) ──
+
+/// Stub for TemporalSolver on non-x86 platforms (Apple Silicon, ARM)
+#[cfg(not(feature = "x86-simd"))]
+#[derive(Debug, Default)]
+pub struct TemporalSolverStub {
+    _dim: usize,
+}
+
+#[cfg(not(feature = "x86-simd"))]
+impl TemporalSolverStub {
+    pub fn new(input_dim: usize, _hidden: usize, _output: usize) -> Self {
+        Self { _dim: input_dim }
+    }
+}
+
+/// Brain memory categories — expanded from 8 to 35 for richer cross-domain discovery.
+///
+/// Categories span from practical engineering to exotic frontier research.
+/// The `Custom(String)` variant accepts any string for future extensibility.
+/// serde uses snake_case: `neural_architecture`, `self_learning`, etc.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum BrainCategory {
+    // ── Core Engineering ──
     Architecture,
     Pattern,
     Solution,
@@ -16,6 +38,73 @@ pub enum BrainCategory {
     Performance,
     Tooling,
     Debug,
+
+    // ── Research & Discovery ──
+    /// State-of-the-art findings from recent papers (2024-2026)
+    Sota,
+    /// First-of-its-kind discoveries — novel connections, methods, or insights
+    Discovery,
+    /// Validated hypotheses with evidence chains
+    Hypothesis,
+    /// Cross-domain connections between unrelated fields
+    CrossDomain,
+
+    // ── AI & ML ──
+    /// Neural architecture innovations (transformers, SSMs, MoE, etc.)
+    NeuralArchitecture,
+    /// Quantization, compression, pruning techniques
+    Compression,
+    /// Self-learning, online learning, continual learning
+    SelfLearning,
+    /// Reinforcement learning, RLHF, reward modeling
+    ReinforcementLearning,
+    /// Graph neural networks, knowledge graphs, spectral methods
+    GraphIntelligence,
+
+    // ── Systems & Infrastructure ──
+    /// Distributed systems, consensus, replication
+    DistributedSystems,
+    /// Edge computing, on-device inference, WASM
+    EdgeComputing,
+    /// Hardware-software co-design, FPGA, NPU, ANE
+    HardwareAcceleration,
+
+    // ── Frontier & Exotic ──
+    /// Quantum computing, quantum-classical hybrid algorithms
+    Quantum,
+    /// Neuromorphic computing, spiking neural networks
+    Neuromorphic,
+    /// Biological computing, DNA storage, molecular computing
+    BioComputing,
+    /// AGI research, cognitive architectures, consciousness
+    CognitiveScience,
+    /// Information theory, complexity theory, formal verification
+    FormalMethods,
+
+    // ── Applied Domains ──
+    /// Geopolitics, economics, social dynamics
+    Geopolitics,
+    /// Climate, energy, sustainability
+    Climate,
+    /// Genomics, drug discovery, medical AI
+    Biomedical,
+    /// Space, astronomy, astrophysics
+    Space,
+    /// Finance, trading, risk modeling
+    Finance,
+
+    // ── Meta ──
+    /// Knowledge about knowledge — epistemology, meta-learning
+    MetaCognition,
+    /// Benchmark results, comparative analyses
+    Benchmark,
+
+    // ── Consciousness & IIT ──
+    /// IIT 4.0 consciousness metrics: Φ, CES, distinctions, relations
+    Consciousness,
+    /// Information decomposition: ΦID, PID, redundancy/synergy analysis
+    InformationDecomposition,
+
     Custom(String),
 }
 
@@ -30,6 +119,32 @@ impl std::fmt::Display for BrainCategory {
             Self::Performance => write!(f, "performance"),
             Self::Tooling => write!(f, "tooling"),
             Self::Debug => write!(f, "debug"),
+            Self::Sota => write!(f, "sota"),
+            Self::Discovery => write!(f, "discovery"),
+            Self::Hypothesis => write!(f, "hypothesis"),
+            Self::CrossDomain => write!(f, "cross_domain"),
+            Self::NeuralArchitecture => write!(f, "neural_architecture"),
+            Self::Compression => write!(f, "compression"),
+            Self::SelfLearning => write!(f, "self_learning"),
+            Self::ReinforcementLearning => write!(f, "reinforcement_learning"),
+            Self::GraphIntelligence => write!(f, "graph_intelligence"),
+            Self::DistributedSystems => write!(f, "distributed_systems"),
+            Self::EdgeComputing => write!(f, "edge_computing"),
+            Self::HardwareAcceleration => write!(f, "hardware_acceleration"),
+            Self::Quantum => write!(f, "quantum"),
+            Self::Neuromorphic => write!(f, "neuromorphic"),
+            Self::BioComputing => write!(f, "bio_computing"),
+            Self::CognitiveScience => write!(f, "cognitive_science"),
+            Self::FormalMethods => write!(f, "formal_methods"),
+            Self::Geopolitics => write!(f, "geopolitics"),
+            Self::Climate => write!(f, "climate"),
+            Self::Biomedical => write!(f, "biomedical"),
+            Self::Space => write!(f, "space"),
+            Self::Finance => write!(f, "finance"),
+            Self::MetaCognition => write!(f, "meta_cognition"),
+            Self::Benchmark => write!(f, "benchmark"),
+            Self::Consciousness => write!(f, "consciousness"),
+            Self::InformationDecomposition => write!(f, "information_decomposition"),
             Self::Custom(s) => write!(f, "{s}"),
         }
     }
@@ -171,6 +286,12 @@ pub struct PartitionResult {
     pub cut_value: f64,
     pub edge_strengths: Vec<EdgeStrengthInfo>,
     pub total_memories: usize,
+    /// Canonical cut hash (ADR-117). Present when canonical=true.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cut_hash: Option<String>,
+    /// First separable vertex index in the canonical ordering.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_separable_vertex: Option<u64>,
 }
 
 /// Compact partition result (default for MCP to avoid SSE truncation)
@@ -180,6 +301,12 @@ pub struct PartitionResultCompact {
     pub cut_value: f64,
     pub edge_strengths: Vec<EdgeStrengthInfo>,
     pub total_memories: usize,
+    /// Canonical cut hash (ADR-117). Present when canonical=true.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cut_hash: Option<String>,
+    /// First separable vertex index in the canonical ordering.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_separable_vertex: Option<u64>,
 }
 
 impl From<PartitionResult> for PartitionResultCompact {
@@ -189,6 +316,8 @@ impl From<PartitionResult> for PartitionResultCompact {
             cut_value: r.cut_value,
             edge_strengths: r.edge_strengths,
             total_memories: r.total_memories,
+            cut_hash: r.cut_hash,
+            first_separable_vertex: r.first_separable_vertex,
         }
     }
 }
@@ -308,6 +437,13 @@ pub struct PartitionQuery {
     /// Return compact format (default: true) - omits 128-dim centroids to avoid SSE truncation
     #[serde(default = "default_compact")]
     pub compact: bool,
+    /// Use source-anchored canonical min-cut (ADR-117) for deterministic,
+    /// hashable partition results suitable for RVF witnesses.
+    #[serde(default)]
+    pub canonical: bool,
+    /// Force fresh computation, bypassing the cache
+    #[serde(default)]
+    pub force: bool,
 }
 
 fn default_compact() -> bool { true }
@@ -321,7 +457,7 @@ pub struct HealthResponse {
     pub persistence_mode: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct StatusResponse {
     pub total_memories: usize,
     pub total_contributors: usize,
@@ -362,6 +498,55 @@ pub struct StatusResponse {
     pub midstream_attractor_categories: usize,
     /// Strange-loop engine version
     pub midstream_strange_loop_version: String,
+    // ── Spectral Sparsifier (ADR-116) ──
+    /// Sparsifier compression ratio (full_edges / sparsified_edges), 0 if not active
+    pub sparsifier_compression: f64,
+    /// Number of edges in the sparsified graph
+    pub sparsifier_edges: usize,
+    // ── Consciousness / IIT 4.0 ──
+    /// Available consciousness algorithms
+    pub consciousness_algorithms: Vec<String>,
+    /// Max system elements supported (for exact IIT 4.0)
+    pub consciousness_max_elements: usize,
+}
+
+/// Request for POST /v1/consciousness/compute
+#[derive(Debug, Clone, Deserialize)]
+pub struct ConsciousnessComputeRequest {
+    /// State-to-state transition probability matrix (flattened row-major, n×n)
+    pub tpm: Vec<f64>,
+    /// Number of states (must be power of 2)
+    pub n: usize,
+    /// Current state index
+    pub state: usize,
+    /// Algorithm: "iit4_phi", "ces", "phi_id", "pid", "streaming", "bounds", "auto"
+    #[serde(default = "default_algo")]
+    pub algorithm: String,
+    /// Minimum φ threshold for CES distinctions
+    #[serde(default = "default_phi_threshold")]
+    pub phi_threshold: f64,
+    /// Partition mask for ΦID/PID (bitmask of elements in source A)
+    pub partition_mask: Option<u64>,
+}
+
+fn default_algo() -> String { "auto".into() }
+fn default_phi_threshold() -> f64 { 1e-6 }
+
+/// Response for POST /v1/consciousness/compute
+#[derive(Debug, Serialize)]
+pub struct ConsciousnessComputeResponse {
+    /// Algorithm used
+    pub algorithm: String,
+    /// System-level integrated information (Φ)
+    pub phi: f64,
+    /// Number of elements (binary components)
+    pub num_elements: usize,
+    /// Number of states
+    pub num_states: usize,
+    /// Computation time in microseconds
+    pub elapsed_us: u64,
+    /// Algorithm-specific results
+    pub details: serde_json::Value,
 }
 
 /// Response for GET /v1/temporal — temporal delta tracking stats
@@ -630,7 +815,10 @@ pub struct CreatePageRequest {
 pub struct SubmitDeltaRequest {
     pub delta_type: DeltaType,
     pub content_diff: serde_json::Value,
+    #[serde(default)]
     pub evidence_links: Vec<EvidenceLink>,
+    /// Witness hash for integrity. If omitted, server computes from content_diff.
+    #[serde(default)]
     pub witness_hash: String,
 }
 
@@ -818,7 +1006,7 @@ impl LoraFederationStore {
             consensus: None,
             epoch: 0,
             previous_consensus: None,
-            min_submissions: 3,
+            min_submissions: 1,
             expected_rank: rank,
             expected_hidden_dim: hidden_dim,
         }
@@ -1172,9 +1360,190 @@ pub struct AppState {
     /// Per-category Lyapunov exponent results from attractor analysis (Phase 9c)
     pub attractor_results: std::sync::Arc<parking_lot::RwLock<std::collections::HashMap<String, temporal_attractor_studio::LyapunovResult>>>,
     /// Temporal neural solver with certified predictions (Phase 9d)
+    /// Note: Only available on x86_64 platforms (requires SIMD)
+    #[cfg(feature = "x86-simd")]
     pub temporal_solver: std::sync::Arc<parking_lot::RwLock<temporal_neural_solver::TemporalSolver>>,
+    #[cfg(not(feature = "x86-simd"))]
+    pub temporal_solver: std::sync::Arc<parking_lot::RwLock<TemporalSolverStub>>,
     /// Meta-cognitive recursive learning with safety bounds (Phase 9e)
     pub strange_loop: std::sync::Arc<parking_lot::RwLock<strange_loop::StrangeLoop<strange_loop::ScalarReasoner, strange_loop::SimpleCritic, strange_loop::SafeReflector>>>,
     /// Active SSE sessions: session ID -> sender channel for streaming responses
     pub sessions: std::sync::Arc<dashmap::DashMap<String, tokio::sync::mpsc::Sender<String>>>,
+    // ── Neural-Symbolic + Internal Voice (ADR-110) ──
+    /// Internal voice system for self-narration and deliberation
+    pub internal_voice: std::sync::Arc<parking_lot::RwLock<crate::voice::InternalVoice>>,
+    /// Neural-symbolic bridge for grounded reasoning
+    pub neural_symbolic: std::sync::Arc<parking_lot::RwLock<crate::symbolic::NeuralSymbolicBridge>>,
+    /// Gemini Flash optimizer for periodic cognitive enhancement
+    pub optimizer: std::sync::Arc<parking_lot::RwLock<crate::optimizer::GeminiOptimizer>>,
+    /// Cloud Pipeline metrics and counters (ADR cloud-native ingestion)
+    pub pipeline_metrics: std::sync::Arc<PipelineState>,
+    /// RSS/Atom feed configurations for periodic ingestion
+    pub feeds: std::sync::Arc<dashmap::DashMap<String, FeedConfig>>,
+    // ── Common Crawl Integration (ADR-115) ──
+    /// Web memory store for crawled pages with tier-aware compression
+    pub web_store: std::sync::Arc<crate::web_store::WebMemoryStore>,
+    /// Common Crawl adapter for CDX queries and WARC fetching
+    pub crawl_adapter: std::sync::Arc<crate::pipeline::CommonCrawlAdapter>,
+    /// Cached partition result from last training cycle (avoids recomputing 969K-edge MinCut on every request)
+    pub cached_partition: std::sync::Arc<parking_lot::RwLock<Option<PartitionResult>>>,
+    /// Resend email notifier (ADR-125) — None if RESEND_API_KEY not set
+    pub notifier: Option<crate::notify::ResendNotifier>,
+    /// Cached /v1/status response to avoid recomputing expensive aggregates every call
+    pub cached_status: std::sync::Arc<parking_lot::RwLock<Option<(std::time::Instant, StatusResponse)>>>,
+    /// GitHub Gist publisher for autonomous discoveries — None if GITHUB_GIST_PAT not set
+    pub gist_publisher: Option<std::sync::Arc<crate::gist::GistPublisher>>,
+    /// Semaphore to limit concurrent pipeline/optimize requests (prevents scheduler thundering herd)
+    pub optimize_semaphore: std::sync::Arc<tokio::sync::Semaphore>,
+    /// Timestamp of last completed pipeline/optimize run (for cooldown enforcement)
+    pub last_optimize_completed: std::sync::Arc<parking_lot::RwLock<Option<std::time::Instant>>>,
+    /// Active SSE connection count (ADR-130 Phase 1 — prevents SSE reconnect storms)
+    pub sse_connections: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Cloud Pipeline types (cloud-native ingestion + optimization)
+// ──────────────────────────────────────────────────────────────────────
+
+/// Pipeline state: atomic counters for real-time metrics tracking.
+pub struct PipelineState {
+    pub messages_received: std::sync::atomic::AtomicU64,
+    pub messages_processed: std::sync::atomic::AtomicU64,
+    pub messages_failed: std::sync::atomic::AtomicU64,
+    pub optimization_cycles: std::sync::atomic::AtomicU64,
+    pub last_training: parking_lot::RwLock<Option<DateTime<Utc>>>,
+    pub last_drift_check: parking_lot::RwLock<Option<DateTime<Utc>>>,
+    pub last_injection: parking_lot::RwLock<Option<DateTime<Utc>>>,
+}
+
+impl PipelineState {
+    pub fn new() -> Self {
+        Self {
+            messages_received: std::sync::atomic::AtomicU64::new(0),
+            messages_processed: std::sync::atomic::AtomicU64::new(0),
+            messages_failed: std::sync::atomic::AtomicU64::new(0),
+            optimization_cycles: std::sync::atomic::AtomicU64::new(0),
+            last_training: parking_lot::RwLock::new(None),
+            last_drift_check: parking_lot::RwLock::new(None),
+            last_injection: parking_lot::RwLock::new(None),
+        }
+    }
+}
+
+impl Default for PipelineState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Request to inject a single item into the pipeline.
+#[derive(Debug, Deserialize)]
+pub struct InjectRequest {
+    #[serde(default)]
+    pub source: String,
+    pub title: String,
+    pub content: String,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default = "default_inject_category")]
+    pub category: BrainCategory,
+    pub metadata: Option<serde_json::Value>,
+}
+
+fn default_inject_category() -> BrainCategory {
+    BrainCategory::Pattern
+}
+
+/// Request to inject a batch of items into the pipeline.
+#[derive(Debug, Deserialize)]
+pub struct BatchInjectRequest {
+    pub source: String,
+    pub items: Vec<InjectRequest>,
+}
+
+/// Response for a single pipeline injection.
+#[derive(Debug, Serialize)]
+pub struct InjectResponse {
+    pub id: Uuid,
+    pub quality_score: f64,
+    pub witness_hash: String,
+    pub graph_edges_added: usize,
+}
+
+/// Response for a batch pipeline injection.
+#[derive(Debug, Serialize)]
+pub struct BatchInjectResponse {
+    pub accepted: usize,
+    pub rejected: usize,
+    pub memory_ids: Vec<Uuid>,
+    pub errors: Vec<String>,
+}
+
+/// Cloud Pub/Sub push message envelope.
+#[derive(Debug, Deserialize)]
+pub struct PubSubPushMessage {
+    pub message: PubSubMessageData,
+    pub subscription: String,
+}
+
+/// Cloud Pub/Sub message data (inner payload).
+#[derive(Debug, Deserialize)]
+pub struct PubSubMessageData {
+    /// Base64-encoded message payload
+    pub data: String,
+    #[serde(default)]
+    pub attributes: HashMap<String, String>,
+    #[serde(rename = "messageId")]
+    pub message_id: String,
+    #[serde(rename = "publishTime")]
+    pub publish_time: String,
+}
+
+/// Request to trigger optimization actions.
+#[derive(Debug, Deserialize)]
+pub struct OptimizeRequest {
+    pub actions: Option<Vec<String>>,
+}
+
+/// Response for an optimization run.
+#[derive(Debug, Serialize)]
+pub struct OptimizeResponse {
+    pub results: Vec<OptimizeActionResult>,
+    pub total_duration_ms: u64,
+}
+
+/// Result of a single optimization action.
+#[derive(Debug, Serialize)]
+pub struct OptimizeActionResult {
+    pub action: String,
+    pub success: bool,
+    pub message: String,
+    pub duration_ms: u64,
+}
+
+/// Pipeline health and throughput metrics.
+#[derive(Debug, Serialize)]
+pub struct PipelineMetricsResponse {
+    pub messages_received: u64,
+    pub messages_processed: u64,
+    pub messages_failed: u64,
+    pub memory_count: usize,
+    pub graph_nodes: usize,
+    pub graph_edges: usize,
+    pub last_training: Option<String>,
+    pub last_drift_check: Option<String>,
+    pub optimization_cycles: u64,
+    pub uptime_seconds: u64,
+    pub injections_per_minute: f64,
+}
+
+/// Configuration for an RSS/Atom feed source.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct FeedConfig {
+    pub url: String,
+    pub name: String,
+    pub category: BrainCategory,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    pub poll_interval_secs: u64,
 }

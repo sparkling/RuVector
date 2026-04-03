@@ -13,7 +13,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 
 use ruvllm::{
     estimate_memory_q4, estimate_memory_q5, estimate_memory_q8, GgufFile, GgufQuantType,
-    QuantConfig, RuvltraQuantizer, TargetFormat,
+    MemoryEstimate, QuantConfig, RuvltraQuantizer, TargetFormat,
 };
 
 /// Run the quantize command
@@ -226,7 +226,7 @@ fn print_memory_estimates(format: TargetFormat) {
     );
 
     // RuvLTRA-Small (0.5B) estimates
-    let estimate_fn = match format {
+    let estimate_fn: fn(f64, usize, usize, usize) -> MemoryEstimate = match format {
         TargetFormat::Q4_K_M => estimate_memory_q4,
         TargetFormat::Q5_K_M => estimate_memory_q5,
         TargetFormat::Q8_0 => estimate_memory_q8,
@@ -234,6 +234,20 @@ fn print_memory_estimates(format: TargetFormat) {
             let mut e = estimate_memory_q8(p, v, h, l);
             e.total_bytes *= 2;
             e.total_mb *= 2.0;
+            e
+        },
+        // PiQ3: 3.0625 bits/weight vs Q4's ~4.5, so ~68% of Q4 size
+        TargetFormat::PiQ3 => |p, v, h, l| {
+            let mut e = estimate_memory_q4(p, v, h, l);
+            e.total_bytes = (e.total_bytes as f64 * 3.0625 / 4.5) as usize;
+            e.total_mb = e.total_bytes as f64 / (1024.0 * 1024.0);
+            e
+        },
+        // PiQ2: 2.0625 bits/weight vs Q4's ~4.5, so ~46% of Q4 size
+        TargetFormat::PiQ2 => |p, v, h, l| {
+            let mut e = estimate_memory_q4(p, v, h, l);
+            e.total_bytes = (e.total_bytes as f64 * 2.0625 / 4.5) as usize;
+            e.total_mb = e.total_bytes as f64 / (1024.0 * 1024.0);
             e
         },
     };

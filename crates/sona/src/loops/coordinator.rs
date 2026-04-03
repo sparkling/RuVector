@@ -97,17 +97,17 @@ impl LoopCoordinator {
         if self.background.should_run() {
             let trajectories = self.instant.drain_trajectories();
             if !trajectories.is_empty() {
-                return Some(self.background.run_cycle(trajectories));
+                return Some(self.background.run_cycle(trajectories, false));
             }
         }
 
         None
     }
 
-    /// Force background cycle
+    /// Force background cycle (bypasses minimum trajectory check)
     pub fn force_background(&self) -> BackgroundResult {
         let trajectories = self.instant.drain_trajectories();
-        self.background.run_cycle(trajectories)
+        self.background.run_cycle(trajectories, true)
     }
 
     /// Flush instant loop updates
@@ -150,14 +150,52 @@ impl LoopCoordinator {
         let (buffer_len, dropped, success_rate) = self.instant.buffer_stats();
 
         CoordinatorStats {
+            trajectories_recorded: buffer_len as u64 + dropped,
             trajectories_buffered: buffer_len,
             trajectories_dropped: dropped,
             buffer_success_rate: success_rate,
             patterns_stored: self.reasoning_bank.read().pattern_count(),
+            patterns_learned: self.reasoning_bank.read().pattern_count(),
             ewc_tasks: self.ewc.read().task_count(),
             instant_enabled: self.instant_enabled,
             background_enabled: self.background_enabled,
         }
+    }
+
+    /// Serialize full state to JSON for persistence (fixes #274)
+    pub fn serialize_state(&self) -> String {
+        let rb = self.reasoning_bank.read();
+        let patterns = rb.get_all_patterns();
+        let ewc = self.ewc.read();
+        serde_json::json!({
+            "version": 1,
+            "patterns": patterns,
+            "ewc_task_count": ewc.task_count(),
+            "instant_enabled": self.instant_enabled,
+            "background_enabled": self.background_enabled,
+        }).to_string()
+    }
+
+    /// Restore state from JSON (fixes #274)
+    /// Call after construction to restore learned patterns from a previous session.
+    pub fn load_state(&self, json: &str) -> Result<usize, String> {
+        let state: serde_json::Value = serde_json::from_str(json)
+            .map_err(|e| format!("Invalid state JSON: {}", e))?;
+
+        let mut loaded = 0;
+
+        // Restore patterns into reasoning bank
+        if let Some(patterns) = state.get("patterns").and_then(|p| p.as_array()) {
+            let mut rb = self.reasoning_bank.write();
+            for p in patterns {
+                if let Ok(pattern) = serde_json::from_value::<crate::LearnedPattern>(p.clone()) {
+                    rb.insert_pattern(pattern);
+                    loaded += 1;
+                }
+            }
+        }
+
+        Ok(loaded)
     }
 }
 
@@ -168,10 +206,16 @@ impl LoopCoordinator {
     derive(serde::Serialize, serde::Deserialize)
 )]
 pub struct CoordinatorStats {
+    /// Total trajectories ever recorded (buffered + dropped) — fixes #273
+    #[cfg_attr(feature = "serde-support", serde(alias = "trajectoriesRecorded"))]
+    pub trajectories_recorded: u64,
     pub trajectories_buffered: usize,
     pub trajectories_dropped: u64,
     pub buffer_success_rate: f64,
     pub patterns_stored: usize,
+    /// Alias for patterns_stored — matches JS interface
+    #[cfg_attr(feature = "serde-support", serde(alias = "patternsLearned"))]
+    pub patterns_learned: usize,
     pub ewc_tasks: usize,
     pub instant_enabled: bool,
     pub background_enabled: bool,
