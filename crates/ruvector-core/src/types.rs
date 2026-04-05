@@ -116,7 +116,7 @@ pub enum QuantizationConfig {
 impl Default for DbOptions {
     fn default() -> Self {
         Self {
-            dimensions: 384,
+            dimensions: 768,
             distance_metric: DistanceMetric::Cosine,
             storage_path: "./ruvector.db".to_string(),
             hnsw_config: Some(HnswConfig::default()),

@@ -42,7 +42,7 @@ impl Default for JsGraphOptions {
     fn default() -> Self {
         Self {
             distance_metric: Some(JsDistanceMetric::Cosine),
-            dimensions: Some(384),
+            dimensions: Some(768),
             storage_path: None,
         }
     }

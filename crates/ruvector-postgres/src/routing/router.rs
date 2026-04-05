@@ -155,7 +155,7 @@ impl Router {
         Self {
             registry: Arc::new(AgentRegistry::new()),
             grnn: None,
-            embedding_dim: 384, // Default embedding size
+            embedding_dim: 768, // Default embedding size
         }
     }
 
@@ -164,7 +164,7 @@ impl Router {
         Self {
             registry,
             grnn: None,
-            embedding_dim: 384,
+            embedding_dim: 768,
         }
     }
 

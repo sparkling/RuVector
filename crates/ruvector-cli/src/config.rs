@@ -89,7 +89,7 @@ fn default_storage_path() -> String {
 }
 
 fn default_dimensions() -> usize {
-    384
+    768
 }
 
 fn default_distance_metric() -> DistanceMetric {
