@@ -265,7 +265,7 @@ mod tests {
     #[test]
     fn test_default_config() {
         let config = Config::default();
-        assert_eq!(config.database.dimensions, 384);
+        assert_eq!(config.database.dimensions, 768);
         assert_eq!(config.cli.batch_size, 1000);
         assert_eq!(config.mcp.port, 3000);
     }
