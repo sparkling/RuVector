@@ -388,8 +388,11 @@ impl RvfStore {
                 } else {
                     ef_search
                 };
+                // Pass hnsw_ef as the k argument too — HNSW truncates output
+                // to k internally, so we need enough pre-filter candidates to
+                // survive deletion bitmap + metadata filtering.
                 let candidates =
-                    graph.search(vector, k, hnsw_ef, &adapter, &dist_fn);
+                    graph.search(vector, hnsw_ef, hnsw_ef, &adapter, &dist_fn);
 
                 // Filter by deletion bitmap and metadata, take top k.
                 let mut results: Vec<SearchResult> = Vec::new();
@@ -1895,9 +1898,11 @@ impl RvfStore {
         }
 
         // Rebuild the HNSW index from vectors loaded off disk.
+        // Always initialise even for empty stores so that subsequent
+        // ingest_batch() calls can insert into the graph immediately.
+        let hnsw_cfg = hnsw_config_from_options(&self.options);
+        let mut graph = rvf_index::HnswGraph::new(&hnsw_cfg);
         if self.vectors.len() > 0 {
-            let hnsw_cfg = hnsw_config_from_options(&self.options);
-            let mut graph = rvf_index::HnswGraph::new(&hnsw_cfg);
             let metric = self.options.metric;
             let dist_fn = |a: &[f32], b: &[f32]| -> f32 { compute_distance(a, b, &metric) };
             // Collect IDs so we don't borrow self.vectors mutably via the adapter
@@ -1910,8 +1915,8 @@ impl RvfStore {
                 };
                 graph.insert(id, rng_val, &adapter, &dist_fn);
             }
-            self.hnsw_graph = Some(graph);
         }
+        self.hnsw_graph = Some(graph);
 
         if !self.read_only {
             let max_seg_id = self
