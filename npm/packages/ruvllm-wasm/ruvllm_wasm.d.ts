@@ -1203,3 +1203,262 @@ export function supports_parallel_inference(require_shared_memory: boolean): boo
  * * `message` - The warning message
  */
 export function warn(message: string): void;
+
+export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
+
+export interface InitOutput {
+    readonly memory: WebAssembly.Memory;
+    readonly __wbg_adaptfeedbackwasm_free: (a: number, b: number) => void;
+    readonly __wbg_bufferpoolwasm_free: (a: number, b: number) => void;
+    readonly __wbg_chatmessagewasm_free: (a: number, b: number) => void;
+    readonly __wbg_chattemplatewasm_free: (a: number, b: number) => void;
+    readonly __wbg_generateconfig_free: (a: number, b: number) => void;
+    readonly __wbg_hnswrouterwasm_free: (a: number, b: number) => void;
+    readonly __wbg_inferencearenawasm_free: (a: number, b: number) => void;
+    readonly __wbg_kvcacheconfigwasm_free: (a: number, b: number) => void;
+    readonly __wbg_kvcachestatswasm_free: (a: number, b: number) => void;
+    readonly __wbg_kvcachewasm_free: (a: number, b: number) => void;
+    readonly __wbg_microlorawasm_free: (a: number, b: number) => void;
+    readonly __wbg_parallelinference_free: (a: number, b: number) => void;
+    readonly __wbg_patternwasm_free: (a: number, b: number) => void;
+    readonly __wbg_routeresultwasm_free: (a: number, b: number) => void;
+    readonly __wbg_ruvllmwasm_free: (a: number, b: number) => void;
+    readonly __wbg_sonaadaptresultwasm_free: (a: number, b: number) => void;
+    readonly __wbg_sonaconfigwasm_free: (a: number, b: number) => void;
+    readonly __wbg_sonainstantwasm_free: (a: number, b: number) => void;
+    readonly __wbg_sonastatswasm_free: (a: number, b: number) => void;
+    readonly __wbg_timer_free: (a: number, b: number) => void;
+    readonly adaptfeedbackwasm_learningRate: (a: number) => number;
+    readonly adaptfeedbackwasm_new: (a: number) => number;
+    readonly adaptfeedbackwasm_quality: (a: number) => number;
+    readonly adaptfeedbackwasm_set_learningRate: (a: number, b: number) => void;
+    readonly adaptfeedbackwasm_set_quality: (a: number, b: number) => void;
+    readonly bufferpoolwasm_clear: (a: number) => void;
+    readonly bufferpoolwasm_hitRate: (a: number) => number;
+    readonly bufferpoolwasm_new: () => number;
+    readonly bufferpoolwasm_prewarmAll: (a: number, b: number) => void;
+    readonly bufferpoolwasm_statsJson: (a: number, b: number) => void;
+    readonly bufferpoolwasm_withCapacity: (a: number) => number;
+    readonly chatmessagewasm_assistant: (a: number, b: number) => number;
+    readonly chatmessagewasm_content: (a: number, b: number) => void;
+    readonly chatmessagewasm_role: (a: number, b: number) => void;
+    readonly chatmessagewasm_system: (a: number, b: number) => number;
+    readonly chatmessagewasm_user: (a: number, b: number) => number;
+    readonly chattemplatewasm_chatml: () => number;
+    readonly chattemplatewasm_custom: (a: number, b: number) => number;
+    readonly chattemplatewasm_detectFromModelId: (a: number, b: number) => number;
+    readonly chattemplatewasm_format: (a: number, b: number, c: number, d: number) => void;
+    readonly chattemplatewasm_gemma: () => number;
+    readonly chattemplatewasm_llama3: () => number;
+    readonly chattemplatewasm_mistral: () => number;
+    readonly chattemplatewasm_name: (a: number, b: number) => void;
+    readonly chattemplatewasm_phi: () => number;
+    readonly cross_origin_isolated: () => number;
+    readonly detect_capability_level: (a: number) => void;
+    readonly error: (a: number, b: number) => void;
+    readonly feature_summary: (a: number) => void;
+    readonly generateconfig_addStopSequence: (a: number, b: number, c: number) => void;
+    readonly generateconfig_clearStopSequences: (a: number) => void;
+    readonly generateconfig_fromJson: (a: number, b: number, c: number) => void;
+    readonly generateconfig_maxTokens: (a: number) => number;
+    readonly generateconfig_new: () => number;
+    readonly generateconfig_repetitionPenalty: (a: number) => number;
+    readonly generateconfig_set_maxTokens: (a: number, b: number) => void;
+    readonly generateconfig_set_repetitionPenalty: (a: number, b: number) => void;
+    readonly generateconfig_set_temperature: (a: number, b: number) => void;
+    readonly generateconfig_set_topK: (a: number, b: number) => void;
+    readonly generateconfig_set_topP: (a: number, b: number) => void;
+    readonly generateconfig_temperature: (a: number) => number;
+    readonly generateconfig_toJson: (a: number, b: number) => void;
+    readonly generateconfig_topK: (a: number) => number;
+    readonly generateconfig_topP: (a: number) => number;
+    readonly getVersion: (a: number) => void;
+    readonly healthCheck: () => number;
+    readonly hnswrouterwasm_addPattern: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => number;
+    readonly hnswrouterwasm_clear: (a: number) => void;
+    readonly hnswrouterwasm_dimensions: (a: number) => number;
+    readonly hnswrouterwasm_efSearch: (a: number) => number;
+    readonly hnswrouterwasm_fromJson: (a: number, b: number, c: number) => void;
+    readonly hnswrouterwasm_getPattern: (a: number, b: number) => number;
+    readonly hnswrouterwasm_maxPatterns: (a: number) => number;
+    readonly hnswrouterwasm_new: (a: number, b: number) => number;
+    readonly hnswrouterwasm_patternCount: (a: number) => number;
+    readonly hnswrouterwasm_route: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly hnswrouterwasm_setEfSearch: (a: number, b: number) => void;
+    readonly hnswrouterwasm_toJson: (a: number, b: number) => void;
+    readonly inferencearenawasm_capacity: (a: number) => number;
+    readonly inferencearenawasm_forModel: (a: number, b: number, c: number) => number;
+    readonly inferencearenawasm_highWaterMark: (a: number) => number;
+    readonly inferencearenawasm_new: (a: number) => number;
+    readonly inferencearenawasm_remaining: (a: number) => number;
+    readonly inferencearenawasm_reset: (a: number) => void;
+    readonly inferencearenawasm_statsJson: (a: number, b: number) => void;
+    readonly inferencearenawasm_used: (a: number) => number;
+    readonly isReady: () => number;
+    readonly is_atomics_available: () => number;
+    readonly is_bigint_available: () => number;
+    readonly is_shared_array_buffer_available: () => number;
+    readonly is_simd_available: () => number;
+    readonly is_transferable_available: () => number;
+    readonly is_web_workers_available: () => number;
+    readonly kvcacheconfigwasm_maxTokens: (a: number) => number;
+    readonly kvcacheconfigwasm_new: () => number;
+    readonly kvcacheconfigwasm_numKvHeads: (a: number) => number;
+    readonly kvcacheconfigwasm_set_maxTokens: (a: number, b: number) => void;
+    readonly kvcacheconfigwasm_set_numKvHeads: (a: number, b: number) => void;
+    readonly kvcacheconfigwasm_set_tailLength: (a: number, b: number) => void;
+    readonly kvcacheconfigwasm_tailLength: (a: number) => number;
+    readonly kvcachestatswasm_toJson: (a: number, b: number) => void;
+    readonly kvcachewasm_append: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
+    readonly kvcachewasm_clear: (a: number) => void;
+    readonly kvcachewasm_getAllKv: (a: number, b: number) => void;
+    readonly kvcachewasm_new: (a: number) => number;
+    readonly kvcachewasm_stats: (a: number) => number;
+    readonly kvcachewasm_tokenCount: (a: number) => number;
+    readonly kvcachewasm_withDefaults: () => number;
+    readonly log: (a: number, b: number) => void;
+    readonly microloraconfigwasm_computeScaling: (a: number) => number;
+    readonly microloraconfigwasm_memoryBytes: (a: number) => number;
+    readonly microloraconfigwasm_new: () => number;
+    readonly microloraconfigwasm_set_rank: (a: number, b: number) => void;
+    readonly microlorastatswasm_toJson: (a: number, b: number) => void;
+    readonly microlorawasm_adapt: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly microlorawasm_apply: (a: number, b: number, c: number, d: number) => void;
+    readonly microlorawasm_applyUpdates: (a: number, b: number) => void;
+    readonly microlorawasm_fromJson: (a: number, b: number, c: number) => void;
+    readonly microlorawasm_getConfig: (a: number) => number;
+    readonly microlorawasm_new: (a: number) => number;
+    readonly microlorawasm_pendingUpdates: (a: number) => number;
+    readonly microlorawasm_reset: (a: number) => void;
+    readonly microlorawasm_stats: (a: number) => number;
+    readonly microlorawasm_toJson: (a: number, b: number) => void;
+    readonly parallel_inference_unavailable_reason: (a: number) => void;
+    readonly parallelinference_attention: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => number;
+    readonly parallelinference_getStats: (a: number, b: number) => void;
+    readonly parallelinference_isAtomicsAvailable: (a: number) => number;
+    readonly parallelinference_isCrossOriginIsolated: (a: number) => number;
+    readonly parallelinference_isSharedMemoryAvailable: (a: number) => number;
+    readonly parallelinference_layerNorm: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => number;
+    readonly parallelinference_matmul: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => number;
+    readonly parallelinference_new: (a: number) => number;
+    readonly parallelinference_optimalWorkerCount: () => number;
+    readonly parallelinference_terminate: (a: number) => void;
+    readonly parallelinference_workerCount: (a: number) => number;
+    readonly patternwasm_embedding: (a: number, b: number) => void;
+    readonly patternwasm_metadata: (a: number, b: number) => void;
+    readonly patternwasm_name: (a: number, b: number) => void;
+    readonly patternwasm_new: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
+    readonly patternwasm_set_metadata: (a: number, b: number, c: number) => void;
+    readonly patternwasm_set_name: (a: number, b: number, c: number) => void;
+    readonly routeresultwasm_embedding: (a: number, b: number) => void;
+    readonly routeresultwasm_metadata: (a: number, b: number) => void;
+    readonly routeresultwasm_name: (a: number, b: number) => void;
+    readonly routeresultwasm_score: (a: number) => number;
+    readonly ruvllmwasm_getPoolStats: (a: number, b: number) => void;
+    readonly ruvllmwasm_initialize: (a: number, b: number) => void;
+    readonly ruvllmwasm_initializeWithConfig: (a: number, b: number, c: number) => void;
+    readonly ruvllmwasm_isInitialized: (a: number) => number;
+    readonly ruvllmwasm_new: () => number;
+    readonly ruvllmwasm_reset: (a: number) => void;
+    readonly sonaadaptresultwasm_applied: (a: number) => number;
+    readonly sonaadaptresultwasm_currentRank: (a: number) => number;
+    readonly sonaadaptresultwasm_latencyUs: (a: number) => bigint;
+    readonly sonaadaptresultwasm_qualityDelta: (a: number) => number;
+    readonly sonaadaptresultwasm_toJson: (a: number, b: number) => void;
+    readonly sonaconfigwasm_emaDecay: (a: number) => number;
+    readonly sonaconfigwasm_fromJson: (a: number, b: number, c: number) => void;
+    readonly sonaconfigwasm_learningRate: (a: number) => number;
+    readonly sonaconfigwasm_new: () => number;
+    readonly sonaconfigwasm_patternCapacity: (a: number) => number;
+    readonly sonaconfigwasm_set_emaDecay: (a: number, b: number) => void;
+    readonly sonaconfigwasm_set_ewcLambda: (a: number, b: number) => void;
+    readonly sonaconfigwasm_set_learningRate: (a: number, b: number) => void;
+    readonly sonaconfigwasm_set_microLoraRank: (a: number, b: number) => void;
+    readonly sonaconfigwasm_set_patternCapacity: (a: number, b: number) => void;
+    readonly sonaconfigwasm_toJson: (a: number, b: number) => void;
+    readonly sonainstantwasm_fromJson: (a: number, b: number, c: number) => void;
+    readonly sonainstantwasm_importantWeightCount: (a: number) => number;
+    readonly sonainstantwasm_instantAdapt: (a: number, b: number) => number;
+    readonly sonainstantwasm_new: (a: number) => number;
+    readonly sonainstantwasm_recordPattern: (a: number, b: number, c: number, d: number) => void;
+    readonly sonainstantwasm_reset: (a: number) => void;
+    readonly sonainstantwasm_stats: (a: number) => number;
+    readonly sonainstantwasm_suggestAction: (a: number, b: number, c: number, d: number) => void;
+    readonly sonainstantwasm_toJson: (a: number, b: number) => void;
+    readonly sonastatswasm_avgLatencyUs: (a: number) => number;
+    readonly sonastatswasm_avgQuality: (a: number) => number;
+    readonly sonastatswasm_bufferSize: (a: number) => number;
+    readonly sonastatswasm_currentRank: (a: number) => number;
+    readonly sonastatswasm_patternsRecorded: (a: number) => bigint;
+    readonly sonastatswasm_successRate: (a: number) => number;
+    readonly sonastatswasm_successfulPatterns: (a: number) => bigint;
+    readonly sonastatswasm_toJson: (a: number, b: number) => void;
+    readonly supports_parallel_inference: (a: number) => number;
+    readonly timer_elapsed_ms: (a: number) => number;
+    readonly timer_new: (a: number, b: number) => number;
+    readonly timer_reset: (a: number) => void;
+    readonly timer_stop: (a: number) => number;
+    readonly warn: (a: number, b: number) => void;
+    readonly init: () => void;
+    readonly ruvllmwasm_version: (a: number) => void;
+    readonly kvcacheconfigwasm_set_headDim: (a: number, b: number) => void;
+    readonly microloraconfigwasm_set_alpha: (a: number, b: number) => void;
+    readonly microloraconfigwasm_set_inFeatures: (a: number, b: number) => void;
+    readonly microloraconfigwasm_set_outFeatures: (a: number, b: number) => void;
+    readonly sonaconfigwasm_set_hiddenDim: (a: number, b: number) => void;
+    readonly ruvllmwasm_formatChat: (a: number, b: number, c: number, d: number) => void;
+    readonly optimal_worker_count: () => number;
+    readonly detectChatTemplate: (a: number, b: number) => number;
+    readonly now_ms: () => number;
+    readonly kvcacheconfigwasm_headDim: (a: number) => number;
+    readonly kvcachestatswasm_compressionRatio: (a: number) => number;
+    readonly kvcachestatswasm_storeTokens: (a: number) => number;
+    readonly kvcachestatswasm_tailTokens: (a: number) => number;
+    readonly kvcachestatswasm_totalTokens: (a: number) => number;
+    readonly microloraconfigwasm_alpha: (a: number) => number;
+    readonly microloraconfigwasm_inFeatures: (a: number) => number;
+    readonly microloraconfigwasm_outFeatures: (a: number) => number;
+    readonly microloraconfigwasm_rank: (a: number) => number;
+    readonly microlorastatswasm_avgQuality: (a: number) => number;
+    readonly microlorastatswasm_memoryBytes: (a: number) => number;
+    readonly microlorastatswasm_paramCount: (a: number) => number;
+    readonly microlorastatswasm_samplesSeen: (a: number) => number;
+    readonly sonaadaptresultwasm_qualityEma: (a: number) => number;
+    readonly sonaconfigwasm_ewcLambda: (a: number) => number;
+    readonly sonaconfigwasm_hiddenDim: (a: number) => number;
+    readonly sonaconfigwasm_microLoraRank: (a: number) => number;
+    readonly sonastatswasm_adaptations: (a: number) => bigint;
+    readonly __wbg_microloraconfigwasm_free: (a: number, b: number) => void;
+    readonly __wbg_microlorastatswasm_free: (a: number, b: number) => void;
+    readonly __wasm_bindgen_func_elem_975: (a: number, b: number) => void;
+    readonly __wasm_bindgen_func_elem_976: (a: number, b: number, c: number, d: number) => void;
+    readonly __wasm_bindgen_func_elem_1021: (a: number, b: number, c: number, d: number) => void;
+    readonly __wbindgen_export: (a: number, b: number) => number;
+    readonly __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;
+    readonly __wbindgen_export3: (a: number) => void;
+    readonly __wbindgen_export4: (a: number, b: number, c: number) => void;
+    readonly __wbindgen_add_to_stack_pointer: (a: number) => number;
+    readonly __wbindgen_start: () => void;
+}
+
+export type SyncInitInput = BufferSource | WebAssembly.Module;
+
+/**
+ * Instantiates the given `module`, which can either be bytes or
+ * a precompiled `WebAssembly.Module`.
+ *
+ * @param {{ module: SyncInitInput }} module - Passing `SyncInitInput` directly is deprecated.
+ *
+ * @returns {InitOutput}
+ */
+export function initSync(module: { module: SyncInitInput } | SyncInitInput): InitOutput;
+
+/**
+ * If `module_or_path` is {RequestInfo} or {URL}, makes a request and
+ * for everything else, calls `WebAssembly.instantiate` directly.
+ *
+ * @param {{ module_or_path: InitInput | Promise<InitInput> }} module_or_path - Passing `InitInput` directly is deprecated.
+ *
+ * @returns {Promise<InitOutput>}
+ */
+export default function __wbg_init (module_or_path?: { module_or_path: InitInput | Promise<InitInput> } | InitInput | Promise<InitInput>): Promise<InitOutput>;

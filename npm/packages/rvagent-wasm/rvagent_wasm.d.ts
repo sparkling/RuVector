@@ -341,3 +341,98 @@ export class WasmRvfBuilder {
      */
     static validate(data: Uint8Array): boolean;
 }
+
+export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
+
+export interface InitOutput {
+    readonly memory: WebAssembly.Memory;
+    readonly __wbg_jsmodelprovider_free: (a: number, b: number) => void;
+    readonly __wbg_wasmagent_free: (a: number, b: number) => void;
+    readonly __wbg_wasmgallery_free: (a: number, b: number) => void;
+    readonly __wbg_wasmmcpserver_free: (a: number, b: number) => void;
+    readonly __wbg_wasmrvfbuilder_free: (a: number, b: number) => void;
+    readonly jsmodelprovider_complete: (a: number, b: number, c: number) => number;
+    readonly jsmodelprovider_new: (a: number, b: number) => void;
+    readonly wasmagent_execute_tool: (a: number, b: number, c: number, d: number) => void;
+    readonly wasmagent_file_count: (a: number) => number;
+    readonly wasmagent_get_state: (a: number, b: number) => void;
+    readonly wasmagent_get_todos: (a: number, b: number) => void;
+    readonly wasmagent_get_tools: (a: number, b: number) => void;
+    readonly wasmagent_is_stopped: (a: number) => number;
+    readonly wasmagent_model: (a: number, b: number) => void;
+    readonly wasmagent_name: (a: number, b: number) => void;
+    readonly wasmagent_new: (a: number, b: number, c: number) => void;
+    readonly wasmagent_prompt: (a: number, b: number, c: number) => number;
+    readonly wasmagent_reset: (a: number) => void;
+    readonly wasmagent_set_model_provider: (a: number, b: number, c: number) => void;
+    readonly wasmagent_turn_count: (a: number) => number;
+    readonly wasmagent_version: (a: number) => void;
+    readonly wasmgallery_addCustom: (a: number, b: number, c: number, d: number) => void;
+    readonly wasmgallery_configure: (a: number, b: number, c: number, d: number) => void;
+    readonly wasmgallery_count: (a: number) => number;
+    readonly wasmgallery_exportCustom: (a: number, b: number) => void;
+    readonly wasmgallery_get: (a: number, b: number, c: number, d: number) => void;
+    readonly wasmgallery_getActive: (a: number, b: number) => void;
+    readonly wasmgallery_getCategories: (a: number, b: number) => void;
+    readonly wasmgallery_getConfig: (a: number, b: number) => void;
+    readonly wasmgallery_importCustom: (a: number, b: number, c: number, d: number) => void;
+    readonly wasmgallery_list: (a: number, b: number) => void;
+    readonly wasmgallery_listByCategory: (a: number, b: number, c: number, d: number) => void;
+    readonly wasmgallery_loadRvf: (a: number, b: number, c: number, d: number) => void;
+    readonly wasmgallery_new: () => number;
+    readonly wasmgallery_removeCustom: (a: number, b: number, c: number, d: number) => void;
+    readonly wasmgallery_search: (a: number, b: number, c: number, d: number) => void;
+    readonly wasmgallery_setActive: (a: number, b: number, c: number, d: number) => void;
+    readonly wasmmcpserver_call_tool: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
+    readonly wasmmcpserver_gallery: (a: number, b: number) => void;
+    readonly wasmmcpserver_handle_request: (a: number, b: number, c: number, d: number) => void;
+    readonly wasmmcpserver_is_initialized: (a: number) => number;
+    readonly wasmmcpserver_list_tools: (a: number, b: number) => void;
+    readonly wasmmcpserver_name: (a: number, b: number) => void;
+    readonly wasmmcpserver_new: (a: number, b: number) => number;
+    readonly wasmmcpserver_version: (a: number, b: number) => void;
+    readonly wasmrvfbuilder_addCapabilities: (a: number, b: number, c: number, d: number) => void;
+    readonly wasmrvfbuilder_addMcpTools: (a: number, b: number, c: number, d: number) => void;
+    readonly wasmrvfbuilder_addPrompt: (a: number, b: number, c: number, d: number) => void;
+    readonly wasmrvfbuilder_addPrompts: (a: number, b: number, c: number, d: number) => void;
+    readonly wasmrvfbuilder_addSkill: (a: number, b: number, c: number, d: number) => void;
+    readonly wasmrvfbuilder_addSkills: (a: number, b: number, c: number, d: number) => void;
+    readonly wasmrvfbuilder_addTool: (a: number, b: number, c: number, d: number) => void;
+    readonly wasmrvfbuilder_addTools: (a: number, b: number, c: number, d: number) => void;
+    readonly wasmrvfbuilder_build: (a: number, b: number) => void;
+    readonly wasmrvfbuilder_new: () => number;
+    readonly wasmrvfbuilder_parse: (a: number, b: number, c: number) => void;
+    readonly wasmrvfbuilder_setOrchestrator: (a: number, b: number, c: number, d: number) => void;
+    readonly wasmrvfbuilder_validate: (a: number, b: number, c: number) => void;
+    readonly wasmrvfbuilder_getMagic: () => number;
+    readonly __wasm_bindgen_func_elem_503: (a: number, b: number) => void;
+    readonly __wasm_bindgen_func_elem_504: (a: number, b: number, c: number, d: number) => void;
+    readonly __wasm_bindgen_func_elem_548: (a: number, b: number, c: number, d: number) => void;
+    readonly __wbindgen_export: (a: number, b: number) => number;
+    readonly __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;
+    readonly __wbindgen_export3: (a: number) => void;
+    readonly __wbindgen_add_to_stack_pointer: (a: number) => number;
+    readonly __wbindgen_export4: (a: number, b: number, c: number) => void;
+}
+
+export type SyncInitInput = BufferSource | WebAssembly.Module;
+
+/**
+ * Instantiates the given `module`, which can either be bytes or
+ * a precompiled `WebAssembly.Module`.
+ *
+ * @param {{ module: SyncInitInput }} module - Passing `SyncInitInput` directly is deprecated.
+ *
+ * @returns {InitOutput}
+ */
+export function initSync(module: { module: SyncInitInput } | SyncInitInput): InitOutput;
+
+/**
+ * If `module_or_path` is {RequestInfo} or {URL}, makes a request and
+ * for everything else, calls `WebAssembly.instantiate` directly.
+ *
+ * @param {{ module_or_path: InitInput | Promise<InitInput> }} module_or_path - Passing `InitInput` directly is deprecated.
+ *
+ * @returns {Promise<InitOutput>}
+ */
+export default function __wbg_init (module_or_path?: { module_or_path: InitInput | Promise<InitInput> } | InitInput | Promise<InitInput>): Promise<InitOutput>;

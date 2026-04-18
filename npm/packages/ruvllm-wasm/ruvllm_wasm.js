@@ -6,7 +6,7 @@
  * Provides quality scores and optional gradient estimates to guide
  * LoRA weight updates.
  */
-class AdaptFeedbackWasm {
+export class AdaptFeedbackWasm {
     __destroy_into_raw() {
         const ptr = this.__wbg_ptr;
         this.__wbg_ptr = 0;
@@ -59,12 +59,11 @@ class AdaptFeedbackWasm {
     }
 }
 if (Symbol.dispose) AdaptFeedbackWasm.prototype[Symbol.dispose] = AdaptFeedbackWasm.prototype.free;
-exports.AdaptFeedbackWasm = AdaptFeedbackWasm;
 
 /**
  * Buffer pool for efficient memory reuse.
  */
-class BufferPoolWasm {
+export class BufferPoolWasm {
     static __wrap(ptr) {
         ptr = ptr >>> 0;
         const obj = Object.create(BufferPoolWasm.prototype);
@@ -151,14 +150,13 @@ class BufferPoolWasm {
     }
 }
 if (Symbol.dispose) BufferPoolWasm.prototype[Symbol.dispose] = BufferPoolWasm.prototype.free;
-exports.BufferPoolWasm = BufferPoolWasm;
 
 /**
  * Chat message for instruction-tuned models.
  *
  * Used to construct conversations for chat-based inference.
  */
-class ChatMessageWasm {
+export class ChatMessageWasm {
     static __wrap(ptr) {
         ptr = ptr >>> 0;
         const obj = Object.create(ChatMessageWasm.prototype);
@@ -257,12 +255,11 @@ class ChatMessageWasm {
     }
 }
 if (Symbol.dispose) ChatMessageWasm.prototype[Symbol.dispose] = ChatMessageWasm.prototype.free;
-exports.ChatMessageWasm = ChatMessageWasm;
 
 /**
  * Chat template for formatting conversations.
  */
-class ChatTemplateWasm {
+export class ChatTemplateWasm {
     static __wrap(ptr) {
         ptr = ptr >>> 0;
         const obj = Object.create(ChatTemplateWasm.prototype);
@@ -387,7 +384,6 @@ class ChatTemplateWasm {
     }
 }
 if (Symbol.dispose) ChatTemplateWasm.prototype[Symbol.dispose] = ChatTemplateWasm.prototype.free;
-exports.ChatTemplateWasm = ChatTemplateWasm;
 
 /**
  * Generation configuration for text generation.
@@ -395,7 +391,7 @@ exports.ChatTemplateWasm = ChatTemplateWasm;
  * Controls sampling parameters and output constraints.
  * TypeScript-friendly with getter/setter methods.
  */
-class GenerateConfig {
+export class GenerateConfig {
     static __wrap(ptr) {
         ptr = ptr >>> 0;
         const obj = Object.create(GenerateConfig.prototype);
@@ -564,7 +560,6 @@ class GenerateConfig {
     }
 }
 if (Symbol.dispose) GenerateConfig.prototype[Symbol.dispose] = GenerateConfig.prototype.free;
-exports.GenerateConfig = GenerateConfig;
 
 /**
  * HNSW Semantic Router for browser-compatible pattern routing
@@ -583,7 +578,7 @@ exports.GenerateConfig = GenerateConfig;
  * This implementation is single-threaded and designed for use in browser
  * main thread or Web Workers.
  */
-class HnswRouterWasm {
+export class HnswRouterWasm {
     static __wrap(ptr) {
         ptr = ptr >>> 0;
         const obj = Object.create(HnswRouterWasm.prototype);
@@ -840,7 +835,6 @@ class HnswRouterWasm {
     }
 }
 if (Symbol.dispose) HnswRouterWasm.prototype[Symbol.dispose] = HnswRouterWasm.prototype.free;
-exports.HnswRouterWasm = HnswRouterWasm;
 
 /**
  * Arena allocator for inference buffers.
@@ -848,7 +842,7 @@ exports.HnswRouterWasm = HnswRouterWasm;
  * Provides fast bump allocation with O(1) reset for
  * generation-step temporaries.
  */
-class InferenceArenaWasm {
+export class InferenceArenaWasm {
     static __wrap(ptr) {
         ptr = ptr >>> 0;
         const obj = Object.create(InferenceArenaWasm.prototype);
@@ -955,12 +949,11 @@ class InferenceArenaWasm {
     }
 }
 if (Symbol.dispose) InferenceArenaWasm.prototype[Symbol.dispose] = InferenceArenaWasm.prototype.free;
-exports.InferenceArenaWasm = InferenceArenaWasm;
 
 /**
  * KV cache configuration for WASM.
  */
-class KvCacheConfigWasm {
+export class KvCacheConfigWasm {
     __destroy_into_raw() {
         const ptr = this.__wbg_ptr;
         this.__wbg_ptr = 0;
@@ -1042,12 +1035,11 @@ class KvCacheConfigWasm {
     }
 }
 if (Symbol.dispose) KvCacheConfigWasm.prototype[Symbol.dispose] = KvCacheConfigWasm.prototype.free;
-exports.KvCacheConfigWasm = KvCacheConfigWasm;
 
 /**
  * KV cache statistics.
  */
-class KvCacheStatsWasm {
+export class KvCacheStatsWasm {
     static __wrap(ptr) {
         ptr = ptr >>> 0;
         const obj = Object.create(KvCacheStatsWasm.prototype);
@@ -1127,7 +1119,6 @@ class KvCacheStatsWasm {
     }
 }
 if (Symbol.dispose) KvCacheStatsWasm.prototype[Symbol.dispose] = KvCacheStatsWasm.prototype.free;
-exports.KvCacheStatsWasm = KvCacheStatsWasm;
 
 /**
  * Two-tier KV cache for WASM.
@@ -1135,7 +1126,7 @@ exports.KvCacheStatsWasm = KvCacheStatsWasm;
  * Provides memory-efficient caching with a high-precision tail
  * and quantized store for older tokens.
  */
-class KvCacheWasm {
+export class KvCacheWasm {
     static __wrap(ptr) {
         ptr = ptr >>> 0;
         const obj = Object.create(KvCacheWasm.prototype);
@@ -1237,7 +1228,6 @@ class KvCacheWasm {
     }
 }
 if (Symbol.dispose) KvCacheWasm.prototype[Symbol.dispose] = KvCacheWasm.prototype.free;
-exports.KvCacheWasm = KvCacheWasm;
 
 /**
  * Configuration for MicroLoRA adapter.
@@ -1245,7 +1235,7 @@ exports.KvCacheWasm = KvCacheWasm;
  * Controls the rank, scaling, and dimensions of the LoRA adapter.
  * TypeScript-friendly with getter/setter methods.
  */
-class MicroLoraConfigWasm {
+export class MicroLoraConfigWasm {
     static __wrap(ptr) {
         ptr = ptr >>> 0;
         const obj = Object.create(MicroLoraConfigWasm.prototype);
@@ -1350,12 +1340,11 @@ class MicroLoraConfigWasm {
     }
 }
 if (Symbol.dispose) MicroLoraConfigWasm.prototype[Symbol.dispose] = MicroLoraConfigWasm.prototype.free;
-exports.MicroLoraConfigWasm = MicroLoraConfigWasm;
 
 /**
  * Statistics for MicroLoRA adapter.
  */
-class MicroLoraStatsWasm {
+export class MicroLoraStatsWasm {
     static __wrap(ptr) {
         ptr = ptr >>> 0;
         const obj = Object.create(MicroLoraStatsWasm.prototype);
@@ -1435,7 +1424,6 @@ class MicroLoraStatsWasm {
     }
 }
 if (Symbol.dispose) MicroLoraStatsWasm.prototype[Symbol.dispose] = MicroLoraStatsWasm.prototype.free;
-exports.MicroLoraStatsWasm = MicroLoraStatsWasm;
 
 /**
  * MicroLoRA adapter for browser-based real-time adaptation.
@@ -1444,7 +1432,7 @@ exports.MicroLoraStatsWasm = MicroLoraStatsWasm;
  * suitable for browser environments. Supports per-request adaptation with
  * quality-based feedback.
  */
-class MicroLoraWasm {
+export class MicroLoraWasm {
     static __wrap(ptr) {
         ptr = ptr >>> 0;
         const obj = Object.create(MicroLoraWasm.prototype);
@@ -1618,7 +1606,6 @@ class MicroLoraWasm {
     }
 }
 if (Symbol.dispose) MicroLoraWasm.prototype[Symbol.dispose] = MicroLoraWasm.prototype.free;
-exports.MicroLoraWasm = MicroLoraWasm;
 
 /**
  * Main parallel inference interface for WASM.
@@ -1626,7 +1613,7 @@ exports.MicroLoraWasm = MicroLoraWasm;
  * Provides high-level API for parallel compute operations in the browser.
  * Automatically manages worker pool and shared memory.
  */
-class ParallelInference {
+export class ParallelInference {
     static __wrap(ptr) {
         ptr = ptr >>> 0;
         const obj = Object.create(ParallelInference.prototype);
@@ -1831,7 +1818,6 @@ class ParallelInference {
     }
 }
 if (Symbol.dispose) ParallelInference.prototype[Symbol.dispose] = ParallelInference.prototype.free;
-exports.ParallelInference = ParallelInference;
 
 /**
  * A stored pattern with embedding and metadata
@@ -1839,7 +1825,7 @@ exports.ParallelInference = ParallelInference;
  * Represents a routing pattern that can be matched against queries.
  * Each pattern has a name, embedding vector, and optional metadata.
  */
-class PatternWasm {
+export class PatternWasm {
     static __wrap(ptr) {
         ptr = ptr >>> 0;
         const obj = Object.create(PatternWasm.prototype);
@@ -1958,14 +1944,13 @@ class PatternWasm {
     }
 }
 if (Symbol.dispose) PatternWasm.prototype[Symbol.dispose] = PatternWasm.prototype.free;
-exports.PatternWasm = PatternWasm;
 
 /**
  * A routing search result with similarity score
  *
  * Represents a matched pattern from a semantic search query.
  */
-class RouteResultWasm {
+export class RouteResultWasm {
     static __wrap(ptr) {
         ptr = ptr >>> 0;
         const obj = Object.create(RouteResultWasm.prototype);
@@ -2050,7 +2035,6 @@ class RouteResultWasm {
     }
 }
 if (Symbol.dispose) RouteResultWasm.prototype[Symbol.dispose] = RouteResultWasm.prototype.free;
-exports.RouteResultWasm = RouteResultWasm;
 
 /**
  * Main RuvLLM WASM interface.
@@ -2058,7 +2042,7 @@ exports.RouteResultWasm = RouteResultWasm;
  * Provides the primary entry point for LLM inference in the browser.
  * Manages KV cache, memory pools, and inference state.
  */
-class RuvLLMWasm {
+export class RuvLLMWasm {
     __destroy_into_raw() {
         const ptr = this.__wbg_ptr;
         this.__wbg_ptr = 0;
@@ -2201,12 +2185,11 @@ class RuvLLMWasm {
     }
 }
 if (Symbol.dispose) RuvLLMWasm.prototype[Symbol.dispose] = RuvLLMWasm.prototype.free;
-exports.RuvLLMWasm = RuvLLMWasm;
 
 /**
  * Result of instant adaptation
  */
-class SonaAdaptResultWasm {
+export class SonaAdaptResultWasm {
     static __wrap(ptr) {
         ptr = ptr >>> 0;
         const obj = Object.create(SonaAdaptResultWasm.prototype);
@@ -2294,12 +2277,11 @@ class SonaAdaptResultWasm {
     }
 }
 if (Symbol.dispose) SonaAdaptResultWasm.prototype[Symbol.dispose] = SonaAdaptResultWasm.prototype.free;
-exports.SonaAdaptResultWasm = SonaAdaptResultWasm;
 
 /**
  * Configuration for SONA Instant Loop (WASM)
  */
-class SonaConfigWasm {
+export class SonaConfigWasm {
     static __wrap(ptr) {
         ptr = ptr >>> 0;
         const obj = Object.create(SonaConfigWasm.prototype);
@@ -2468,12 +2450,11 @@ class SonaConfigWasm {
     }
 }
 if (Symbol.dispose) SonaConfigWasm.prototype[Symbol.dispose] = SonaConfigWasm.prototype.free;
-exports.SonaConfigWasm = SonaConfigWasm;
 
 /**
  * SONA Instant Loop for WASM
  */
-class SonaInstantWasm {
+export class SonaInstantWasm {
     static __wrap(ptr) {
         ptr = ptr >>> 0;
         const obj = Object.create(SonaInstantWasm.prototype);
@@ -2623,12 +2604,11 @@ class SonaInstantWasm {
     }
 }
 if (Symbol.dispose) SonaInstantWasm.prototype[Symbol.dispose] = SonaInstantWasm.prototype.free;
-exports.SonaInstantWasm = SonaInstantWasm;
 
 /**
  * Learning statistics
  */
-class SonaStatsWasm {
+export class SonaStatsWasm {
     static __wrap(ptr) {
         ptr = ptr >>> 0;
         const obj = Object.create(SonaStatsWasm.prototype);
@@ -2740,12 +2720,11 @@ class SonaStatsWasm {
     }
 }
 if (Symbol.dispose) SonaStatsWasm.prototype[Symbol.dispose] = SonaStatsWasm.prototype.free;
-exports.SonaStatsWasm = SonaStatsWasm;
 
 /**
  * Simple timer for measuring elapsed time in WASM.
  */
-class Timer {
+export class Timer {
     __destroy_into_raw() {
         const ptr = this.__wbg_ptr;
         this.__wbg_ptr = 0;
@@ -2796,7 +2775,6 @@ class Timer {
     }
 }
 if (Symbol.dispose) Timer.prototype[Symbol.dispose] = Timer.prototype.free;
-exports.Timer = Timer;
 
 /**
  * Check if the page is cross-origin isolated.
@@ -2810,24 +2788,22 @@ exports.Timer = Timer;
  * `true` if cross-origin isolated, `false` otherwise.
  * @returns {boolean}
  */
-function cross_origin_isolated() {
+export function cross_origin_isolated() {
     const ret = wasm.cross_origin_isolated();
     return ret !== 0;
 }
-exports.cross_origin_isolated = cross_origin_isolated;
 
 /**
  * Detect chat template from model ID.
  * @param {string} model_id
  * @returns {ChatTemplateWasm}
  */
-function detectChatTemplate(model_id) {
+export function detectChatTemplate(model_id) {
     const ptr0 = passStringToWasm0(model_id, wasm.__wbindgen_export, wasm.__wbindgen_export2);
     const len0 = WASM_VECTOR_LEN;
     const ret = wasm.detectChatTemplate(ptr0, len0);
     return ChatTemplateWasm.__wrap(ret);
 }
-exports.detectChatTemplate = detectChatTemplate;
 
 /**
  * Determine the capability level for parallel inference.
@@ -2836,7 +2812,7 @@ exports.detectChatTemplate = detectChatTemplate;
  * The capability level based on available features.
  * @returns {string}
  */
-function detect_capability_level() {
+export function detect_capability_level() {
     let deferred1_0;
     let deferred1_1;
     try {
@@ -2852,7 +2828,6 @@ function detect_capability_level() {
         wasm.__wbindgen_export4(deferred1_0, deferred1_1, 1);
     }
 }
-exports.detect_capability_level = detect_capability_level;
 
 /**
  * Log an error to the browser console.
@@ -2862,12 +2837,11 @@ exports.detect_capability_level = detect_capability_level;
  * * `message` - The error message
  * @param {string} message
  */
-function error(message) {
+export function error(message) {
     const ptr0 = passStringToWasm0(message, wasm.__wbindgen_export, wasm.__wbindgen_export2);
     const len0 = WASM_VECTOR_LEN;
     wasm.error(ptr0, len0);
 }
-exports.error = error;
 
 /**
  * Get a summary of all available features.
@@ -2876,7 +2850,7 @@ exports.error = error;
  * JSON string with feature availability.
  * @returns {string}
  */
-function feature_summary() {
+export function feature_summary() {
     let deferred1_0;
     let deferred1_1;
     try {
@@ -2892,13 +2866,12 @@ function feature_summary() {
         wasm.__wbindgen_export4(deferred1_0, deferred1_1, 1);
     }
 }
-exports.feature_summary = feature_summary;
 
 /**
  * Get the WASM module version.
  * @returns {string}
  */
-function getVersion() {
+export function getVersion() {
     let deferred1_0;
     let deferred1_1;
     try {
@@ -2914,7 +2887,6 @@ function getVersion() {
         wasm.__wbindgen_export4(deferred1_0, deferred1_1, 1);
     }
 }
-exports.getVersion = getVersion;
 
 /**
  * Perform a simple health check.
@@ -2922,11 +2894,10 @@ exports.getVersion = getVersion;
  * Returns true if the WASM module is functioning correctly.
  * @returns {boolean}
  */
-function healthCheck() {
+export function healthCheck() {
     const ret = wasm.healthCheck();
     return ret !== 0;
 }
-exports.healthCheck = healthCheck;
 
 /**
  * Initialize the WASM module.
@@ -2934,20 +2905,18 @@ exports.healthCheck = healthCheck;
  * This should be called once at application startup to set up
  * panic hooks and any other initialization.
  */
-function init() {
+export function init() {
     wasm.init();
 }
-exports.init = init;
 
 /**
  * Check if the WASM module is ready.
  * @returns {boolean}
  */
-function isReady() {
+export function isReady() {
     const ret = wasm.isReady();
     return ret !== 0;
 }
-exports.isReady = isReady;
 
 /**
  * Check if Atomics API is available.
@@ -2959,11 +2928,10 @@ exports.isReady = isReady;
  * `true` if Atomics is available, `false` otherwise.
  * @returns {boolean}
  */
-function is_atomics_available() {
+export function is_atomics_available() {
     const ret = wasm.is_atomics_available();
     return ret !== 0;
 }
-exports.is_atomics_available = is_atomics_available;
 
 /**
  * Check if BigInt is available.
@@ -2974,11 +2942,10 @@ exports.is_atomics_available = is_atomics_available;
  * `true` if BigInt is available, `false` otherwise.
  * @returns {boolean}
  */
-function is_bigint_available() {
+export function is_bigint_available() {
     const ret = wasm.is_bigint_available();
     return ret !== 0;
 }
-exports.is_bigint_available = is_bigint_available;
 
 /**
  * Check if SharedArrayBuffer is available.
@@ -2997,11 +2964,10 @@ exports.is_bigint_available = is_bigint_available;
  * `true` if SharedArrayBuffer is available, `false` otherwise.
  * @returns {boolean}
  */
-function is_shared_array_buffer_available() {
+export function is_shared_array_buffer_available() {
     const ret = wasm.is_shared_array_buffer_available();
     return ret !== 0;
 }
-exports.is_shared_array_buffer_available = is_shared_array_buffer_available;
 
 /**
  * Check if SIMD (WebAssembly SIMD) is available.
@@ -3010,11 +2976,10 @@ exports.is_shared_array_buffer_available = is_shared_array_buffer_available;
  * `true` if WASM SIMD is available, `false` otherwise.
  * @returns {boolean}
  */
-function is_simd_available() {
+export function is_simd_available() {
     const ret = wasm.is_simd_available();
     return ret !== 0;
 }
-exports.is_simd_available = is_simd_available;
 
 /**
  * Check if Transferable objects are available.
@@ -3026,11 +2991,10 @@ exports.is_simd_available = is_simd_available;
  * `true` if Transferable objects are available, `false` otherwise.
  * @returns {boolean}
  */
-function is_transferable_available() {
+export function is_transferable_available() {
     const ret = wasm.is_transferable_available();
     return ret !== 0;
 }
-exports.is_transferable_available = is_transferable_available;
 
 /**
  * Check if Web Workers are available.
@@ -3039,11 +3003,10 @@ exports.is_transferable_available = is_transferable_available;
  * `true` if Web Workers are available, `false` otherwise.
  * @returns {boolean}
  */
-function is_web_workers_available() {
+export function is_web_workers_available() {
     const ret = wasm.is_web_workers_available();
     return ret !== 0;
 }
-exports.is_web_workers_available = is_web_workers_available;
 
 /**
  * Log a message to the browser console.
@@ -3053,12 +3016,11 @@ exports.is_web_workers_available = is_web_workers_available;
  * * `message` - The message to log
  * @param {string} message
  */
-function log(message) {
+export function log(message) {
     const ptr0 = passStringToWasm0(message, wasm.__wbindgen_export, wasm.__wbindgen_export2);
     const len0 = WASM_VECTOR_LEN;
     wasm.log(ptr0, len0);
 }
-exports.log = log;
 
 /**
  * Get current timestamp in milliseconds using Performance API.
@@ -3066,11 +3028,10 @@ exports.log = log;
  * Returns high-resolution timestamp for performance measurements.
  * @returns {number}
  */
-function now_ms() {
+export function now_ms() {
     const ret = wasm.now_ms();
     return ret;
 }
-exports.now_ms = now_ms;
 
 /**
  * Get the optimal number of workers based on hardware concurrency.
@@ -3087,11 +3048,10 @@ exports.now_ms = now_ms;
  * Recommended number of workers.
  * @returns {number}
  */
-function optimal_worker_count() {
+export function optimal_worker_count() {
     const ret = wasm.optimal_worker_count();
     return ret >>> 0;
 }
-exports.optimal_worker_count = optimal_worker_count;
 
 /**
  * Get a message explaining why parallel inference is not available.
@@ -3100,7 +3060,7 @@ exports.optimal_worker_count = optimal_worker_count;
  * Explanation string, or empty string if parallel inference is available.
  * @returns {string}
  */
-function parallel_inference_unavailable_reason() {
+export function parallel_inference_unavailable_reason() {
     let deferred1_0;
     let deferred1_1;
     try {
@@ -3116,7 +3076,6 @@ function parallel_inference_unavailable_reason() {
         wasm.__wbindgen_export4(deferred1_0, deferred1_1, 1);
     }
 }
-exports.parallel_inference_unavailable_reason = parallel_inference_unavailable_reason;
 
 /**
  * Check if the environment supports parallel inference.
@@ -3129,11 +3088,10 @@ exports.parallel_inference_unavailable_reason = parallel_inference_unavailable_r
  * @param {boolean} require_shared_memory
  * @returns {boolean}
  */
-function supports_parallel_inference(require_shared_memory) {
+export function supports_parallel_inference(require_shared_memory) {
     const ret = wasm.supports_parallel_inference(require_shared_memory);
     return ret !== 0;
 }
-exports.supports_parallel_inference = supports_parallel_inference;
 
 /**
  * Log a warning to the browser console.
@@ -3143,12 +3101,11 @@ exports.supports_parallel_inference = supports_parallel_inference;
  * * `message` - The warning message
  * @param {string} message
  */
-function warn(message) {
+export function warn(message) {
     const ptr0 = passStringToWasm0(message, wasm.__wbindgen_export, wasm.__wbindgen_export2);
     const len0 = WASM_VECTOR_LEN;
     wasm.warn(ptr0, len0);
 }
-exports.warn = warn;
 
 function __wbg_get_imports() {
     const import0 = {
@@ -3821,7 +3778,15 @@ function takeObject(idx) {
 
 let cachedTextDecoder = new TextDecoder('utf-8', { ignoreBOM: true, fatal: true });
 cachedTextDecoder.decode();
+const MAX_SAFARI_DECODE_BYTES = 2146435072;
+let numBytesDecoded = 0;
 function decodeText(ptr, len) {
+    numBytesDecoded += len;
+    if (numBytesDecoded >= MAX_SAFARI_DECODE_BYTES) {
+        cachedTextDecoder = new TextDecoder('utf-8', { ignoreBOM: true, fatal: true });
+        cachedTextDecoder.decode();
+        numBytesDecoded = len;
+    }
     return cachedTextDecoder.decode(getUint8ArrayMemory0().subarray(ptr, ptr + len));
 }
 
@@ -3840,8 +3805,96 @@ if (!('encodeInto' in cachedTextEncoder)) {
 
 let WASM_VECTOR_LEN = 0;
 
-const wasmPath = `${__dirname}/ruvllm_wasm_bg.wasm`;
-const wasmBytes = require('fs').readFileSync(wasmPath);
-const wasmModule = new WebAssembly.Module(wasmBytes);
-let wasm = new WebAssembly.Instance(wasmModule, __wbg_get_imports()).exports;
-wasm.__wbindgen_start();
+let wasmModule, wasm;
+function __wbg_finalize_init(instance, module) {
+    wasm = instance.exports;
+    wasmModule = module;
+    cachedDataViewMemory0 = null;
+    cachedFloat32ArrayMemory0 = null;
+    cachedUint8ArrayMemory0 = null;
+    wasm.__wbindgen_start();
+    return wasm;
+}
+
+async function __wbg_load(module, imports) {
+    if (typeof Response === 'function' && module instanceof Response) {
+        if (typeof WebAssembly.instantiateStreaming === 'function') {
+            try {
+                return await WebAssembly.instantiateStreaming(module, imports);
+            } catch (e) {
+                const validResponse = module.ok && expectedResponseType(module.type);
+
+                if (validResponse && module.headers.get('Content-Type') !== 'application/wasm') {
+                    console.warn("`WebAssembly.instantiateStreaming` failed because your server does not serve Wasm with `application/wasm` MIME type. Falling back to `WebAssembly.instantiate` which is slower. Original error:\n", e);
+
+                } else { throw e; }
+            }
+        }
+
+        const bytes = await module.arrayBuffer();
+        return await WebAssembly.instantiate(bytes, imports);
+    } else {
+        const instance = await WebAssembly.instantiate(module, imports);
+
+        if (instance instanceof WebAssembly.Instance) {
+            return { instance, module };
+        } else {
+            return instance;
+        }
+    }
+
+    function expectedResponseType(type) {
+        switch (type) {
+            case 'basic': case 'cors': case 'default': return true;
+        }
+        return false;
+    }
+}
+
+function initSync(module) {
+    if (wasm !== undefined) return wasm;
+
+
+    if (module !== undefined) {
+        if (Object.getPrototypeOf(module) === Object.prototype) {
+            ({module} = module)
+        } else {
+            console.warn('using deprecated parameters for `initSync()`; pass a single object instead')
+        }
+    }
+
+    const imports = __wbg_get_imports();
+    if (!(module instanceof WebAssembly.Module)) {
+        module = new WebAssembly.Module(module);
+    }
+    const instance = new WebAssembly.Instance(module, imports);
+    return __wbg_finalize_init(instance, module);
+}
+
+async function __wbg_init(module_or_path) {
+    if (wasm !== undefined) return wasm;
+
+
+    if (module_or_path !== undefined) {
+        if (Object.getPrototypeOf(module_or_path) === Object.prototype) {
+            ({module_or_path} = module_or_path)
+        } else {
+            console.warn('using deprecated parameters for the initialization function; pass a single object instead')
+        }
+    }
+
+    if (module_or_path === undefined) {
+        module_or_path = new URL('ruvllm_wasm_bg.wasm', import.meta.url);
+    }
+    const imports = __wbg_get_imports();
+
+    if (typeof module_or_path === 'string' || (typeof Request === 'function' && module_or_path instanceof Request) || (typeof URL === 'function' && module_or_path instanceof URL)) {
+        module_or_path = fetch(module_or_path);
+    }
+
+    const { instance, module } = await __wbg_load(await module_or_path, imports);
+
+    return __wbg_finalize_init(instance, module);
+}
+
+export { initSync, __wbg_init as default };
