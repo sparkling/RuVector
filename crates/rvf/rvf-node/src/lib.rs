@@ -5,7 +5,7 @@
 
 extern crate napi_derive;
 
-use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Mutex;
 
 use napi::bindgen_prelude::*;
@@ -19,6 +19,124 @@ use rvf_runtime::options::{
 };
 use rvf_runtime::RvfStore;
 use rvf_types::RvfError;
+
+// ── Cross-process ingest lock (ADR-0095 Sprint 1.4 d7) ───────────────
+//
+// `rvf-runtime`'s `WriterLock` is PID-based and acquired at `RvfStore::open()`
+// time, not per-write. When the fork's advisory lock serializes `initialize()`
+// but individual ingest calls from separate processes still land on the same
+// file (e.g. two `cli memory store` subprocesses whose first `open` succeeded
+// and the second `open` raced the first's in-flight SFVR bytes), the inner
+// `store.ingest_batch()` writes can interleave at the byte level, producing
+// `InvalidChecksum` corruption (observed ~5-10% of trials by Pass-4 disk probe).
+//
+// This module adds an OS-level exclusive advisory lock (`flock(LOCK_EX)` on
+// Unix; no-op on other platforms — Pass-4 probe and the `darwin-arm64` dev
+// machine are the primary test surface) on a sibling `.ingestlock` file held
+// for the duration of each `ingest_batch` call. The lock file is created with
+// `O_CREAT|O_RDWR`, never unlinked (idempotent across process restarts), and
+// released via RAII on guard drop.
+//
+// This is independent of and layered UNDER the existing `WriterLock` — even
+// if two processes somehow both hold their own `RvfStore` handle, their
+// `ingest_batch` writes are serialized by the OS kernel's flock queue.
+
+#[cfg(unix)]
+mod ingest_lock {
+    use std::ffi::CString;
+    use std::io;
+    use std::os::unix::ffi::OsStrExt;
+    use std::path::{Path, PathBuf};
+
+    /// Acquired exclusive flock on the `.ingestlock` sibling of an `.rvf` file.
+    /// Released via RAII on drop.
+    pub(crate) struct IngestLockGuard {
+        fd: libc::c_int,
+    }
+
+    impl IngestLockGuard {
+        /// Acquire `LOCK_EX` on the `.ingestlock` file sibling of `rvf_path`.
+        ///
+        /// Blocking: if another process holds the lock, this call waits until
+        /// the lock is released. The lock is process-scoped on Linux/macOS and
+        /// is reliable across the same-host POSIX semantics we require.
+        ///
+        /// Returns an `io::Error` on syscall failure (ENFILE, EACCES, etc.).
+        pub(crate) fn acquire(rvf_path: &Path) -> io::Result<Self> {
+            let lock_path = lock_path_for(rvf_path);
+            let c_path = CString::new(lock_path.as_os_str().as_bytes())
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
+
+            // O_CREAT | O_RDWR, mode 0o644. The file is never unlinked, so
+            // concurrent opens all refer to the same inode and flock queue.
+            let fd = unsafe {
+                libc::open(
+                    c_path.as_ptr(),
+                    libc::O_RDWR | libc::O_CREAT | libc::O_CLOEXEC,
+                    0o644,
+                )
+            };
+            if fd < 0 {
+                return Err(io::Error::last_os_error());
+            }
+
+            // Blocking exclusive lock. LOCK_EX serializes every writer; peers
+            // block in the kernel until we release (drop or explicit close).
+            let rc = unsafe { libc::flock(fd, libc::LOCK_EX) };
+            if rc != 0 {
+                let err = io::Error::last_os_error();
+                // Cleanup the fd we just opened; lock was never acquired.
+                unsafe { libc::close(fd) };
+                return Err(err);
+            }
+
+            Ok(Self { fd })
+        }
+    }
+
+    impl Drop for IngestLockGuard {
+        fn drop(&mut self) {
+            // Best-effort release. `close()` alone is enough to drop the flock
+            // on every POSIX platform, but we call `flock(LOCK_UN)` explicitly
+            // so other processes waiting on the queue wake up deterministically
+            // even if the fd cleanup is delayed by the scheduler.
+            unsafe {
+                libc::flock(self.fd, libc::LOCK_UN);
+                libc::close(self.fd);
+            }
+        }
+    }
+
+    /// Compute the `.ingestlock` sibling path for a given RVF file.
+    pub(crate) fn lock_path_for(rvf_path: &Path) -> PathBuf {
+        let mut p = rvf_path.as_os_str().to_os_string();
+        p.push(".ingestlock");
+        PathBuf::from(p)
+    }
+}
+
+#[cfg(not(unix))]
+mod ingest_lock {
+    use std::io;
+    use std::path::Path;
+
+    /// No-op on non-Unix platforms.
+    ///
+    /// ADR-0095 Sprint 1.4's primary test surface is the acceptance cascade
+    /// on darwin-arm64 / linux-x64. Windows cross-process flock would use
+    /// `LockFileEx` but is out of scope for this sprint — the `InvalidChecksum`
+    /// race has not been probed on Windows. This stub is a placeholder so the
+    /// crate compiles on win32-x64-msvc (the napi target list).
+    pub(crate) struct IngestLockGuard;
+
+    impl IngestLockGuard {
+        pub(crate) fn acquire(_rvf_path: &Path) -> io::Result<Self> {
+            Ok(Self)
+        }
+    }
+}
+
+use ingest_lock::IngestLockGuard;
 
 // ── Error mapping ────────────────────────────────────────────────────
 
@@ -435,6 +553,12 @@ pub struct RvfQuantConfig {
 #[napi]
 pub struct RvfDatabase {
     inner: Mutex<Option<RvfStore>>,
+    /// Path of the backing `.rvf` file. Stored for the cross-process ingest
+    /// lock (ADR-0095 Sprint 1.4 d7) — the `.ingestlock` sibling path is
+    /// derived from this. Retained for the lifetime of the handle even after
+    /// `close()` (so a trailing `ingest_batch` on a closed handle fails at
+    /// the RvfStore check rather than a path-not-found panic).
+    path: PathBuf,
 }
 
 #[napi]
@@ -443,27 +567,33 @@ impl RvfDatabase {
     #[napi(factory)]
     pub fn create(path: String, options: RvfOptions) -> Result<Self> {
         let rust_opts = js_options_to_rust(&options)?;
-        let store = RvfStore::create(Path::new(&path), rust_opts).map_err(map_rvf_err)?;
+        let path_buf = PathBuf::from(&path);
+        let store = RvfStore::create(&path_buf, rust_opts).map_err(map_rvf_err)?;
         Ok(Self {
             inner: Mutex::new(Some(store)),
+            path: path_buf,
         })
     }
 
     /// Open an existing RVF store for read-write access.
     #[napi(factory)]
     pub fn open(path: String) -> Result<Self> {
-        let store = RvfStore::open(Path::new(&path)).map_err(map_rvf_err)?;
+        let path_buf = PathBuf::from(&path);
+        let store = RvfStore::open(&path_buf).map_err(map_rvf_err)?;
         Ok(Self {
             inner: Mutex::new(Some(store)),
+            path: path_buf,
         })
     }
 
     /// Open an existing RVF store for read-only access (no lock required).
     #[napi(factory)]
     pub fn open_readonly(path: String) -> Result<Self> {
-        let store = RvfStore::open_readonly(Path::new(&path)).map_err(map_rvf_err)?;
+        let path_buf = PathBuf::from(&path);
+        let store = RvfStore::open_readonly(&path_buf).map_err(map_rvf_err)?;
         Ok(Self {
             inner: Mutex::new(Some(store)),
+            path: path_buf,
         })
     }
 
@@ -472,6 +602,17 @@ impl RvfDatabase {
     /// `vectors` is a flat Float32Array of length `n * dimension`.
     /// `ids` is a number[] of vector IDs.
     /// `metadata` is an optional array of metadata entries.
+    ///
+    /// # Concurrency (ADR-0095 Sprint 1.4 d7)
+    ///
+    /// Acquires an OS-level exclusive `flock(LOCK_EX)` on the sibling
+    /// `{path}.ingestlock` file before invoking `store.ingest_batch()`, and
+    /// releases it via RAII when the method returns. This serializes the
+    /// on-disk write segment across processes that share the same `.rvf`
+    /// path, closing the `InvalidChecksum` race identified by Pass-4's disk
+    /// probe. The in-process `self.inner` mutex still guards single-process
+    /// reentrancy; the flock adds the inter-process dimension the PID-based
+    /// `WriterLock` in `rvf-runtime` does not cover per-write.
     #[napi]
     pub fn ingest_batch(
         &self,
@@ -479,6 +620,19 @@ impl RvfDatabase {
         ids: Vec<i64>,
         metadata: Option<Vec<RvfMetadataEntry>>,
     ) -> Result<RvfIngestResult> {
+        // ADR-0095 d7: acquire cross-process flock BEFORE the in-process mutex.
+        // Order matters — lock hierarchy is OS-lock → in-process mutex so that
+        // a process waiting on the flock doesn't already hold `self.inner`
+        // locked (which would block any concurrent read from the same handle).
+        // The flock guard is RAII-released on scope exit, including on early
+        // return from any `?` operator below.
+        let _ingest_guard = IngestLockGuard::acquire(&self.path).map_err(|e| {
+            napi::Error::from_reason(format!(
+                "Failed to acquire ingest flock on {:?}: {}",
+                self.path, e
+            ))
+        })?;
+
         let mut guard = self
             .inner
             .lock()
@@ -751,9 +905,10 @@ impl RvfDatabase {
             None => None,
         };
 
+        let child_path_buf = PathBuf::from(&child_path);
         let child_store = store
             .derive(
-                Path::new(&child_path),
+                &child_path_buf,
                 rvf_types::DerivationType::Filter,
                 child_opts,
             )
@@ -761,6 +916,7 @@ impl RvfDatabase {
 
         Ok(RvfDatabase {
             inner: Mutex::new(Some(child_store)),
+            path: child_path_buf,
         })
     }
 

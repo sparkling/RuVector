@@ -20,3 +20,17 @@ rvf-types = { version = "0.2.0", path = "../rvf-types" }
 napi = { version = "2", features = ["async"] }
 napi-derive = "2"
 serde_json = "1"
+
+# Cross-process advisory file locking for ingest_batch (ADR-0095 Sprint 1.4 d7).
+# The underlying rvf-runtime `WriterLock` is PID-based and acquired at open()
+# time, not per-write. Pass-4 disk probe observed that once two processes
+# each hold their own RvfStore handle (possible under the fork's serialized
+# init flow), concurrent `store.ingest_batch()` calls corrupt the on-disk
+# SFVR stream (InvalidChecksum ~5-10% of trials). `libc::flock(LOCK_EX)` on
+# a sibling `.rvf.ingestlock` file serializes the write segment at the OS
+# level, independent of any application-level PID-lock state.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[build-dependencies]
+napi-build = "2.1"
