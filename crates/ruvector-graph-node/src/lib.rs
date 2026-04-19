@@ -245,6 +245,36 @@ impl GraphDatabase {
         .map_err(|e| Error::from_reason(format!("Task failed: {}", e)))?
     }
 
+    /// Get a node by its ID (direct lookup, no Cypher parsing).
+    ///
+    /// Returns `null` when the node is not present. Prefer this over
+    /// `query("MATCH (n) WHERE n.id = '...' RETURN n")` — the Cypher
+    /// WHERE-expression evaluator is incomplete, and this direct path
+    /// is O(1) via the underlying DashMap.
+    ///
+    /// # Example
+    /// ```javascript
+    /// const node = await db.getNodeById('node-123');
+    /// ```
+    #[napi]
+    pub async fn get_node_by_id(&self, id: String) -> Result<Option<JsNodeResult>> {
+        let graph_db = self.graph_db.clone();
+        tokio::task::spawn_blocking(move || {
+            let gdb = graph_db.read().expect("RwLock poisoned");
+            Ok::<Option<JsNodeResult>, Error>(gdb.get_node(&id).map(|node| JsNodeResult {
+                id: node.id.clone(),
+                labels: node.labels.iter().map(|l| l.name.clone()).collect(),
+                properties: node
+                    .properties
+                    .iter()
+                    .map(|(k, v)| (k.clone(), format!("{:?}", v)))
+                    .collect(),
+            }))
+        })
+        .await
+        .map_err(|e| Error::from_reason(format!("Task failed: {}", e)))?
+    }
+
     /// Query the graph using Cypher-like syntax
     ///
     /// # Example
@@ -294,10 +324,27 @@ impl GraphDatabase {
                                         });
                                     }
                                 }
-                                // If no labels specified, return all nodes (simplified)
+                                // If no labels specified (`MATCH (n) RETURN n`), iterate all
+                                // nodes. Previously this branch was a stub that returned only
+                                // stats, silently yielding an empty result set — making direct
+                                // node lookups unusable via the Cypher surface.
                                 if node_pattern.labels.is_empty() && node_pattern.variable.is_some()
                                 {
-                                    // This would need iteration over all nodes - for now just stats
+                                    for node in gdb.get_all_nodes() {
+                                        result_nodes.push(JsNodeResult {
+                                            id: node.id.clone(),
+                                            labels: node
+                                                .labels
+                                                .iter()
+                                                .map(|l| l.name.clone())
+                                                .collect(),
+                                            properties: node
+                                                .properties
+                                                .iter()
+                                                .map(|(k, v)| (k.clone(), format!("{:?}", v)))
+                                                .collect(),
+                                        });
+                                    }
                                 }
                             }
                         }

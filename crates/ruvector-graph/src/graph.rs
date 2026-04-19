@@ -156,6 +156,16 @@ impl GraphDB {
             .collect()
     }
 
+    /// Get all nodes in the graph. Clones every node — O(N). Used by the
+    /// Cypher `MATCH (n) RETURN n` (no label) branch at the NAPI boundary;
+    /// callers that only need a single node should prefer `get_node(id)`.
+    pub fn get_all_nodes(&self) -> Vec<Node> {
+        self.nodes
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect()
+    }
+
     /// Get nodes by property
     pub fn get_nodes_by_property(&self, key: &str, value: &PropertyValue) -> Vec<Node> {
         self.property_index
