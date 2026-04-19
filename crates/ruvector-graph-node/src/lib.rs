@@ -85,8 +85,19 @@ impl GraphDatabase {
     /// ```
     #[napi(factory)]
     pub fn open(path: String) -> Result<Self> {
+        // Open the on-disk storage for write-through (used by createNode/createEdge).
         let storage = GraphStorage::new(&path)
             .map_err(|e| Error::from_reason(format!("Failed to open storage: {}", e)))?;
+
+        // Hydrate the in-memory GraphDB from the same path. Previously open()
+        // constructed an empty GraphDB::new(), which meant any existing nodes
+        // on disk were invisible to query() / get_node() — cross-process
+        // writes were durable on disk but unreadable by subsequent opens.
+        // GraphDB::with_storage(path) replays nodes/edges/hyperedges into the
+        // in-memory DashMaps via load_from_storage().
+        let graph_db = GraphDB::with_storage(&path).map_err(|e| {
+            Error::from_reason(format!("Failed to hydrate graph_db from storage: {}", e))
+        })?;
 
         let metric = DistanceMetric::Cosine;
 
@@ -94,7 +105,7 @@ impl GraphDatabase {
             hypergraph: Arc::new(RwLock::new(CoreHypergraphIndex::new(metric))),
             causal_memory: Arc::new(RwLock::new(CoreCausalMemory::new(metric))),
             transaction_manager: Arc::new(RwLock::new(transactions::TransactionManager::new())),
-            graph_db: Arc::new(RwLock::new(GraphDB::new())),
+            graph_db: Arc::new(RwLock::new(graph_db)),
             storage: Some(Arc::new(RwLock::new(storage))),
             storage_path: Some(path),
         })
