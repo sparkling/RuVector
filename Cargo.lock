@@ -10824,6 +10824,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "rvf-index"
+version = "0.1.0"
+
+[[package]]
 name = "rvf-kernel"
 version = "0.1.0"
 dependencies = [
@@ -10861,6 +10865,7 @@ dependencies = [
 name = "rvf-runtime"
 version = "0.2.0"
 dependencies = [
+ "rvf-index",
  "rvf-types",
 ]
 

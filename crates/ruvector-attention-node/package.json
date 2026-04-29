@@ -59,6 +59,11 @@
     "@ruvector/attention-linux-x64-gnu": "0.1.4",
     "@ruvector/attention-linux-arm64-gnu": "0.1.4"
   },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "*.node"
+  ],
   "devDependencies": {
     "@napi-rs/cli": "^2.18.0"
   }

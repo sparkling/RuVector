@@ -3405,7 +3405,7 @@ dependencies = [
 
 [[package]]
 name = "ruvector-attention"
-version = "0.1.31"
+version = "2.1.0"
 dependencies = [
  "rand 0.8.5",
  "rayon",
@@ -3415,7 +3415,7 @@ dependencies = [
 
 [[package]]
 name = "ruvector-core"
-version = "2.0.3"
+version = "2.1.0"
 dependencies = [
  "anyhow",
  "bincode 2.0.1",
@@ -3442,7 +3442,7 @@ dependencies = [
 
 [[package]]
 name = "ruvector-gnn"
-version = "2.0.3"
+version = "2.1.0"
 dependencies = [
  "anyhow",
  "dashmap",
@@ -3460,7 +3460,7 @@ dependencies = [
 
 [[package]]
 name = "ruvector-graph"
-version = "2.0.3"
+version = "2.1.0"
 dependencies = [
  "anyhow",
  "bincode 2.0.1",
@@ -3501,7 +3501,7 @@ dependencies = [
 
 [[package]]
 name = "ruvector-sona"
-version = "0.1.5"
+version = "0.1.9"
 dependencies = [
  "crossbeam",
  "getrandom 0.2.17",
@@ -3549,7 +3549,7 @@ dependencies = [
  "ruvector-gnn",
  "ruvector-graph",
  "ruvector-sona",
- "ruvllm 2.0.3",
+ "ruvllm 2.1.0",
  "serde",
  "serde_json",
  "simsimd",
@@ -3568,7 +3568,7 @@ dependencies = [
 
 [[package]]
 name = "ruvllm"
-version = "2.0.3"
+version = "2.1.0"
 dependencies = [
  "anyhow",
  "async-trait",

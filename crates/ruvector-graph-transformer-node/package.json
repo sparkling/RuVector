@@ -43,6 +43,11 @@
     "type": "git",
     "url": "https://github.com/ruvnet/ruvector"
   },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "*.node"
+  ],
   "devDependencies": {
     "@napi-rs/cli": "^2.16.0"
   },
