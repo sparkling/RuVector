@@ -17,10 +17,6 @@ examples/
 *~
 
 # Build artifacts
-*.node
-!*.linux-*.node
-!*.darwin-*.node
-!*.win32-*.node
 
 # Test databases
 *.db
