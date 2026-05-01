@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/rvf-node",
-  "version": "0.1.9-patch.9",
+  "version": "0.1.9-patch.10",
   "private": true,
   "description": "RuVector Format Node.js native bindings — BUILD-ONLY stub. Real redistribution at npm/packages/rvf-node/. Marked private so the ruflo-patch publish pipeline doesn't pick this location.",
   "main": "index.js",
