@@ -6,7 +6,7 @@
   ],
   "author": "RuVector Team <ruvnet@users.noreply.github.com>",
   "description": "WASM bindings for ruvector-nervous-system bio-inspired AI components - HDC, BTSP, neuromorphic computing",
-  "version": "0.1.29-patch.12",
+  "version": "0.1.29-patch.13",
   "license": "MIT",
   "repository": {
     "type": "git",
