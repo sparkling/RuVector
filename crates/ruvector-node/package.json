@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/node",
-  "version": "0.1.22-patch.10",
+  "version": "0.1.22-patch.11",
   "description": "High-performance Rust vector database for Node.js with HNSW indexing and SIMD optimizations",
   "main": "index.js",
   "types": "index.d.ts",
