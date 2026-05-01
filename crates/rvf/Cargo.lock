@@ -1857,6 +1857,7 @@ dependencies = [
 name = "rvf-runtime"
 version = "0.2.0"
 dependencies = [
+ "libc",
  "rand",
  "rvf-index",
  "rvf-types",
