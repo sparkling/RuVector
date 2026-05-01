@@ -48,15 +48,43 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
+#[cfg(unix)]
+use std::collections::HashMap;
+#[cfg(unix)]
+use std::sync::Mutex;
+
+#[cfg(unix)]
+fn process_local_holders() -> &'static Mutex<HashMap<PathBuf, usize>> {
+    // Process-local registry of paths this process already holds the
+    // flock for. flock(LOCK_EX) is per-fd on Linux/macOS — a second fd
+    // opened in the SAME process and flocked will block waiting for the
+    // first fd to release. Two in-process `RvfStore` instances on the
+    // same path is a real pattern (tests construct N RvfBackend objects
+    // concurrently to simulate cross-process behaviour; production hooks
+    // do it accidentally). For the in-process repeat case we want
+    // success, not a deadlock — the first holder is already enforcing
+    // exclusion against any peer process.
+    //
+    // The map's value is a refcount: nested in-process acquisitions are
+    // common (router-level ensure-init + per-store acquire). The lock is
+    // released only when refcount drops to zero.
+    use std::sync::OnceLock;
+    static H: OnceLock<Mutex<HashMap<PathBuf, usize>>> = OnceLock::new();
+    H.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
 /// Represents an acquired writer lock.
 ///
 /// On Unix this owns a file descriptor with `flock(LOCK_EX)` held. On Drop
 /// the fd is closed (which releases the flock automatically per POSIX
 /// semantics), and we additionally call `flock(LOCK_UN)` explicitly so
 /// queued peers wake up deterministically.
+///
+/// In-process repeat acquisitions on the same path do NOT take a new
+/// kernel flock — they bump a process-local refcount and return.
 pub(crate) struct WriterLock {
     #[cfg(unix)]
-    fd: libc::c_int,
+    fd: libc::c_int, // -1 sentinel = process-local refcount holder, no real fd
     #[cfg(unix)]
     lock_path: PathBuf,
     #[cfg(not(unix))]
@@ -82,6 +110,21 @@ impl WriterLock {
             use std::os::unix::ffi::OsStrExt;
 
             let lock_path = lock_path_for(rvf_path);
+
+            // Process-local short-circuit: if this process already holds
+            // the flock for `lock_path`, just bump the refcount and return
+            // a sentinel guard (fd = -1). The kernel flock is per-fd and
+            // would deadlock against ourselves otherwise.
+            {
+                let mut holders = process_local_holders().lock().unwrap();
+                if let Some(refcount) = holders.get_mut(&lock_path) {
+                    *refcount += 1;
+                    return Ok(WriterLock { fd: -1, lock_path });
+                }
+                // Not yet held — fall through to acquire the real flock.
+                // We'll insert into the map AFTER successful flock.
+            }
+
             let c_path = CString::new(lock_path.as_os_str().as_bytes())
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
 
@@ -99,15 +142,22 @@ impl WriterLock {
                 return Err(io::Error::last_os_error());
             }
 
-            // Blocking exclusive lock. LOCK_EX serializes every writer;
-            // peers block in the kernel until we release (drop / close /
-            // process death). No userspace retry budget; no PID-staleness
-            // logic — the kernel handles all of that.
+            // Blocking exclusive lock. LOCK_EX serializes every writer
+            // across processes; the process-local short-circuit above
+            // handles same-process repeat. Kernel handles fairness and
+            // auto-release on process death.
             let rc = unsafe { libc::flock(fd, libc::LOCK_EX) };
             if rc != 0 {
                 let err = io::Error::last_os_error();
                 unsafe { libc::close(fd) };
                 return Err(err);
+            }
+
+            // Now record the holder so future same-process acquisitions
+            // hit the short-circuit above.
+            {
+                let mut holders = process_local_holders().lock().unwrap();
+                holders.insert(lock_path.clone(), 1);
             }
 
             Ok(WriterLock { fd, lock_path })
@@ -152,24 +202,36 @@ impl WriterLock {
 #[cfg(unix)]
 impl Drop for WriterLock {
     fn drop(&mut self) {
-        // Best-effort release. `close()` alone is enough to drop the flock
-        // on every POSIX platform (kernel reaps fd state regardless), but
-        // call `flock(LOCK_UN)` explicitly so queued peers wake up
-        // deterministically even if fd cleanup is scheduler-deferred.
-        //
-        // Crucially: this runs on natural Rust drop. When N-API skips
-        // Drop because of `process.exit(0)`, the kernel still releases
-        // the flock when the process's fd table is torn down — so the
-        // "leaked .lock" failure mode of the old PID-file design cannot
-        // happen here. The lock_path field is unused at drop time but
-        // kept so `is_valid()` could in principle re-open + check (left
-        // as future work; current `is_valid()` just checks the fd
-        // descriptor sentinel).
-        unsafe {
-            libc::flock(self.fd, libc::LOCK_UN);
-            libc::close(self.fd);
+        // Decrement the process-local refcount. If we were a sentinel
+        // (fd == -1, in-process repeat acquisition), there's no real
+        // flock to release. If refcount drops to zero, release the real
+        // flock + close the fd held by the original acquirer.
+        let mut release_kernel_flock = false;
+        {
+            let mut holders = process_local_holders().lock().unwrap();
+            if let Some(refcount) = holders.get_mut(&self.lock_path) {
+                if *refcount > 1 {
+                    *refcount -= 1;
+                } else {
+                    holders.remove(&self.lock_path);
+                    // The acquisition that set refcount=1 is the one
+                    // holding the real fd. If that's THIS guard, release
+                    // the kernel flock. Sentinel guards (fd=-1) don't.
+                    if self.fd >= 0 {
+                        release_kernel_flock = true;
+                    }
+                }
+            }
         }
-        let _ = &self.lock_path; // suppress dead-code warning
+        if release_kernel_flock {
+            // Best-effort release. close() alone is enough — kernel reaps
+            // fd state on process death too. Explicit LOCK_UN wakes
+            // queued peers deterministically.
+            unsafe {
+                libc::flock(self.fd, libc::LOCK_UN);
+                libc::close(self.fd);
+            }
+        }
     }
 }
 
