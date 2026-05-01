@@ -1,7 +1,7 @@
 {
   "name": "@ruvector/ruvllm-wasm",
   "description": "WASM bindings for RuvLLM - Node.js LLM inference runtime",
-  "version": "2.1.1-patch.4",
+  "version": "2.1.1-patch.5",
   "license": "MIT",
   "repository": {
     "type": "git",

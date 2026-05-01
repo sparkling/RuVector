@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/burst-scaling",
-  "version": "1.0.0-patch.4",
+  "version": "1.0.0-patch.5",
   "description": "Adaptive burst scaling system for ruvector - handles 10-50x traffic spikes",
   "main": "index.js",
   "scripts": {
