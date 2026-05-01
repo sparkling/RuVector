@@ -21,6 +21,12 @@ ed25519 = ["rvf-types/ed25519"]
 [dependencies]
 rvf-types = { version = "0.2.0", path = "../rvf-types", features = ["std"] }
 
+# ADR-0095 amendment (2026-05-01): kernel flock-based WriterLock needs libc
+# for `open`/`close`/`flock` syscalls. Same crate already used by rvf-node's
+# IngestLockGuard, so version-pinning is consistent across the workspace.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 tempfile = "3"
 rand = "0.8"
