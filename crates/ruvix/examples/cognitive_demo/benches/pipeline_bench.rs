@@ -2,7 +2,7 @@
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use ruvix_demo::{
-    components::{Attestor, FeatureExtractor, KernelInterface, SensorAdapter},
+    components::{Attestor, Component, FeatureExtractor, KernelInterface, SensorAdapter},
     pipeline::{CognitivePipeline, PipelineConfig},
     PerceptionEvent,
 };
@@ -84,9 +84,8 @@ fn benchmark_attestor(c: &mut Criterion) {
             &attestation_count,
             |b, &count| {
                 b.iter(|| {
-                    let mut attestor =
-                        Attestor::new(RegionHandle::new(0, 0), CapHandle::null())
-                            .with_max_attestations(count);
+                    let mut attestor = Attestor::new(RegionHandle::new(0, 0), CapHandle::null())
+                        .with_max_attestations(count);
                     let mut kernel = KernelInterface::new();
                     attestor.initialize().unwrap();
 

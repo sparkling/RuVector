@@ -88,6 +88,9 @@ claude-flow
 # Removed Windows wrapper files per user request
 hive-mind-prompt-*.txt
 
+# Agent worktree directories (runtime-only, per-agent isolation)
+.claude/worktrees/
+
 # Native intelligence database (binary)
 .claude/intelligence/data/intelligence.db
 
@@ -125,6 +128,15 @@ examples/*/dist/
 *_report.svg
 *_sky_map.svg
 
+# Training data
+training-data*.jsonl
+
 # Extracted code artifacts
 claude-code-extracted/
 examples/open-claude-code/
+examples/real-eeg-analysis/data/*.edf
+examples/real-eeg-multi-seizure/data/*.edf
+agentdb.rvf
+agentdb.rvf.lock
+.kalshi
+bench_data/

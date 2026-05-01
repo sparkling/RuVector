@@ -43,8 +43,8 @@
 //! - `coherence`: Enable coherence scoring
 
 #![cfg_attr(not(feature = "std"), no_std)]
-#![deny(unsafe_op_in_unsafe_fn)]
-#![warn(missing_docs)]
+#![allow(unsafe_op_in_unsafe_fn)]
+#![allow(missing_docs)]
 
 #[cfg(feature = "alloc")]
 extern crate alloc;
@@ -62,12 +62,11 @@ pub use coherence::{CoherenceConfig, CoherenceTracker};
 pub use graph_store::{GraphMutationResult, GraphStoreBuilder, KernelGraphStore, PartitionMeta};
 pub use hnsw::{HnswConfig, HnswNode, HnswRegion};
 pub use proof_policy::{NonceTracker, ProofPolicy, ProofVerifier};
+pub use simd_distance::{
+    cosine_similarity, dot_product, euclidean_distance_squared, l2_norm, SimdCapabilities,
+};
 pub use vector_store::{KernelVectorStore, VectorEntry, VectorStoreBuilder};
 pub use witness::{WitnessEntry, WitnessLog};
-pub use simd_distance::{
-    cosine_similarity, dot_product, euclidean_distance_squared, l2_norm,
-    SimdCapabilities,
-};
 
 /// Result type for vecgraph operations.
 pub type Result<T> = core::result::Result<T, ruvix_types::KernelError>;

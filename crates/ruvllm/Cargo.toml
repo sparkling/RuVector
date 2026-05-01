@@ -14,7 +14,7 @@ categories = ["science", "algorithms"]
 [dependencies]
 # Ruvector integration
 ruvector-core = { version = "2.0", path = "../ruvector-core", default-features = false, features = ["storage", "hnsw", "parallel", "simd"] }
-ruvector-sona = { version = "0.1.6", path = "../sona", default-features = false, features = ["serde-support"] }
+ruvector-sona = { version = "0.2.0", path = "../sona", default-features = false, features = ["serde-support"] }
 
 # Optional Ruvector crates for advanced features
 ruvector-attention = { version = "2.0", path = "../ruvector-attention", optional = true }
@@ -70,7 +70,7 @@ candle-transformers = { version = "0.8", optional = true }
 tokenizers = { version = "0.20", optional = true, default-features = false, features = ["onig"] }
 
 # HuggingFace Hub for model downloads
-hf-hub = { version = "0.3", optional = true, features = ["tokio"] }
+hf-hub = { version = "0.4", optional = true, features = ["tokio"] }
 
 # mistral-rs backend for high-performance inference (optional)
 # NOTE: mistralrs crate is not yet on crates.io - use git dependency when available:

@@ -1,16 +1,10 @@
 {
   "name": "@ruvector/ruvllm-darwin-arm64",
-  "version": "2.0.0-patch.22",
-  "os": [
-    "darwin"
-  ],
-  "cpu": [
-    "arm64"
-  ],
+  "version": "2.0.0",
+  "os": ["darwin"],
+  "cpu": ["arm64"],
   "main": "ruvllm.darwin-arm64.node",
-  "files": [
-    "ruvllm.darwin-arm64.node"
-  ],
+  "files": ["ruvllm.darwin-arm64.node"],
   "description": "RuvLLM native SIMD acceleration - darwin-arm64 (Apple Silicon) platform",
   "keywords": [
     "ruvllm",

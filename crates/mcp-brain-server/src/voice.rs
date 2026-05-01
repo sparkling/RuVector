@@ -179,7 +179,8 @@ impl WorkingMemory {
             self.evict_lowest();
         }
 
-        self.items.push(WorkingMemoryItem::new(content, embedding, source));
+        self.items
+            .push(WorkingMemoryItem::new(content, embedding, source));
     }
 
     /// Retrieve items similar to query embedding
@@ -221,16 +222,11 @@ impl WorkingMemory {
 
     /// Evict item with lowest activation
     fn evict_lowest(&mut self) {
-        if let Some((min_idx, _)) = self
-            .items
-            .iter()
-            .enumerate()
-            .min_by(|(_, a), (_, b)| {
-                a.activation
-                    .partial_cmp(&b.activation)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
-        {
+        if let Some((min_idx, _)) = self.items.iter().enumerate().min_by(|(_, a), (_, b)| {
+            a.activation
+                .partial_cmp(&b.activation)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        }) {
             self.items.remove(min_idx);
         }
     }
@@ -369,9 +365,7 @@ impl InternalVoice {
         self.emit(
             ThoughtType::Goal,
             format!("I should {}", description),
-            ThoughtSource::GoalDirected {
-                goal: description,
-            },
+            ThoughtSource::GoalDirected { goal: description },
         );
         goal_id
     }
@@ -582,21 +576,9 @@ impl Default for InternalVoice {
 // Utilities
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Cosine similarity between two vectors
+/// Cosine similarity — delegates to the optimized version in graph.rs
 fn cosine_similarity(a: &[f32], b: &[f32]) -> f64 {
-    if a.len() != b.len() || a.is_empty() {
-        return 0.0;
-    }
-
-    let dot: f64 = a.iter().zip(b.iter()).map(|(x, y)| (*x as f64) * (*y as f64)).sum();
-    let norm_a: f64 = a.iter().map(|x| (*x as f64).powi(2)).sum::<f64>().sqrt();
-    let norm_b: f64 = b.iter().map(|x| (*x as f64).powi(2)).sum::<f64>().sqrt();
-
-    if norm_a < 1e-10 || norm_b < 1e-10 {
-        return 0.0;
-    }
-
-    dot / (norm_a * norm_b)
+    crate::graph::cosine_similarity(a, b)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -680,8 +662,16 @@ mod tests {
     #[test]
     fn test_working_memory_retrieval() {
         let mut wm = WorkingMemory::new(5);
-        wm.add("hello world".to_string(), vec![1.0, 0.0, 0.0, 0.0], ContentSource::External);
-        wm.add("goodbye world".to_string(), vec![0.0, 1.0, 0.0, 0.0], ContentSource::External);
+        wm.add(
+            "hello world".to_string(),
+            vec![1.0, 0.0, 0.0, 0.0],
+            ContentSource::External,
+        );
+        wm.add(
+            "goodbye world".to_string(),
+            vec![0.0, 1.0, 0.0, 0.0],
+            ContentSource::External,
+        );
 
         let results = wm.retrieve(&[0.9, 0.1, 0.0, 0.0], 1);
         assert!(!results.is_empty());

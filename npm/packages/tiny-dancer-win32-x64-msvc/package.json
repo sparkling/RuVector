@@ -1,17 +1,13 @@
 {
   "name": "@ruvector/tiny-dancer-win32-x64-msvc",
-  "version": "0.1.15-patch.22",
+  "version": "0.1.15",
   "description": "Windows x64 native bindings for @ruvector/tiny-dancer",
   "main": "ruvector-tiny-dancer.win32-x64-msvc.node",
   "files": [
     "ruvector-tiny-dancer.win32-x64-msvc.node"
   ],
-  "os": [
-    "win32"
-  ],
-  "cpu": [
-    "x64"
-  ],
+  "os": ["win32"],
+  "cpu": ["x64"],
   "author": "ruv.io Team <info@ruv.io> (https://ruv.io)",
   "license": "MIT",
   "repository": {

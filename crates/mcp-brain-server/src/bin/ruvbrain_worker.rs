@@ -6,10 +6,9 @@
 //! Reads WORKER_ACTIONS env var (comma-separated) to select actions.
 //! If unset, runs all actions. Reuses the same AppState as the API server.
 
+use mcp_brain_server::midstream;
 use mcp_brain_server::routes;
 use mcp_brain_server::types::AppState;
-use mcp_brain_server::graph::KnowledgeGraph;
-use mcp_brain_server::midstream;
 use ruvector_domain_expansion::DomainId;
 use std::collections::{HashMap, HashSet};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
@@ -146,10 +145,8 @@ fn run_action(action: &str, state: &AppState) -> (bool, String) {
         "rebuild_graph" => {
             let all_mems = state.store.all_memories();
             let mut graph = state.graph.write();
-            *graph = KnowledgeGraph::new();
-            for mem in &all_mems {
-                graph.add_memory(mem);
-            }
+            // ADR-149 P3: batch rebuild instead of one-at-a-time add_memory loop
+            graph.rebuild_from_batch(&all_mems);
             graph.rebuild_sparsifier();
             (
                 true,

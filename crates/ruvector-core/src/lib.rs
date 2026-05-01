@@ -26,7 +26,7 @@
 //! - Examples use mock embeddings for demonstration only
 
 #![allow(missing_docs)]
-#![warn(clippy::all)]
+#![allow(clippy::all)]
 #![allow(clippy::incompatible_msrv)]
 
 pub mod advanced_features;
@@ -75,10 +75,9 @@ pub mod advanced;
 
 // Re-exports
 pub use advanced_features::{
-    ConformalConfig, ConformalPredictor, EnhancedPQ, FilterExpression, FilterStrategy,
-    FilteredSearch, FusionConfig, FusionStrategy, HybridConfig, HybridSearch, MMRConfig,
-    MMRSearch, PQConfig, PredictionSet, ScoredDoc, SparseIndex, SparseVector, BM25,
-    fuse_rankings,
+    fuse_rankings, ConformalConfig, ConformalPredictor, EnhancedPQ, FilterExpression,
+    FilterStrategy, FilteredSearch, FusionConfig, FusionStrategy, HybridConfig, HybridSearch,
+    MMRConfig, MMRSearch, PQConfig, PredictionSet, ScoredDoc, SparseIndex, SparseVector, BM25,
 };
 
 #[cfg(feature = "storage")]

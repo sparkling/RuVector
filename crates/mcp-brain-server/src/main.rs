@@ -26,14 +26,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let train_state = state.clone();
     let _training_handle = tokio::spawn(async move {
         let train_interval = std::time::Duration::from_secs(300); // 5 min: full enhanced cycle
-        let tick_interval = std::time::Duration::from_secs(60);   // 60s: lightweight cognitive tick
+        let tick_interval = std::time::Duration::from_secs(60); // 60s: lightweight cognitive tick
         let mut tick_count = 0u64;
 
         // Wait 30s before first cycle (let startup finish, data load)
         tokio::time::sleep(std::time::Duration::from_secs(30)).await;
 
-        // Run an initial enhanced cycle on startup to bootstrap cognitive state
-        let result = routes::run_enhanced_training_cycle(&train_state);
+        // Run an initial enhanced cycle on startup to bootstrap cognitive state (full retrain)
+        let result = routes::run_enhanced_training_cycle(&train_state, true);
         tracing::info!(
             "Initial cognitive bootstrap: props={}, inferences={}, voice={}, curiosity={}, strange_loop={:.4}",
             result.propositions_extracted, result.inferences_derived,
@@ -79,7 +79,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         category: top_cat.clone(),
                     };
                     let arm = ruvector_domain_expansion::transfer::ArmId(top_cat.clone());
-                    train_state.domain_engine.write().meta.curiosity.record_visit(&bucket, &arm);
+                    train_state
+                        .domain_engine
+                        .write()
+                        .meta
+                        .curiosity
+                        .record_visit(&bucket, &arm);
                 }
             }
 
@@ -88,7 +93,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let mem_count = train_state.store.memory_count();
                 let ws_load = train_state.workspace.read().current_load();
                 train_state.internal_voice.write().observe(
-                    format!("tick {}: {} memories, GWT load {:.2}", tick_count, mem_count, ws_load),
+                    format!(
+                        "tick {}: {} memories, GWT load {:.2}",
+                        tick_count, mem_count, ws_load
+                    ),
                     uuid::Uuid::nil(),
                 );
             }
@@ -102,16 +110,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 // Run enhanced cycle if there's new data, or every 3rd full cycle regardless
                 // (keeps curiosity + self-reflection active even during quiet periods)
+                // ADR-149 P4: The incremental filter inside run_enhanced_training_cycle
+                // handles skipping unchanged memories automatically. Pass force_full=false
+                // to benefit from incremental processing; the function auto-forces a full
+                // retrain every 24h.
                 if new_memories > 0 || new_votes > 0 || tick_count % 15 == 0 {
-                    let result = routes::run_enhanced_training_cycle(&train_state);
+                    let result = routes::run_enhanced_training_cycle(&train_state, false);
                     tracing::info!(
-                        "Cognitive cycle #{}: props={}, inferences={}, voice={}, auto_votes={}, \
-                         curiosity={}, sona_patterns={}, strange_loop={:.4}, lora_auto={}",
+                        "Cognitive cycle #{} ({}): props={}, inferences={}, voice={}, auto_votes={}, \
+                         curiosity={}, sona_patterns={}, strange_loop={:.4}, lora_auto={}, processed={}/{}",
                         tick_count / 5,
+                        if result.was_full_retrain { "full" } else { "incremental" },
                         result.propositions_extracted, result.inferences_derived,
                         result.voice_thoughts, result.auto_votes,
                         result.curiosity_triggered, result.sona_patterns,
-                        result.strange_loop_score, result.lora_auto_submitted
+                        result.strange_loop_score, result.lora_auto_submitted,
+                        result.memories_processed, result.memory_count
                     );
                     last_memory_count = current_memories;
                     last_vote_count = current_votes;
@@ -130,17 +144,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tokio::time::sleep(std::time::Duration::from_secs(60)).await;
         let edge_count = spar_state.graph.read().edge_count();
         if edge_count > 5_000_000 {
-            tracing::info!("Skipping sparsifier build: graph too large ({edge_count} edges, >5M threshold)");
+            tracing::info!(
+                "Skipping sparsifier build: graph too large ({edge_count} edges, >5M threshold)"
+            );
         } else if edge_count > 100_000 && spar_state.graph.read().sparsifier_stats().is_none() {
             tracing::info!("Background sparsifier build starting ({edge_count} edges)");
             // Run in spawn_blocking to avoid starving the tokio runtime
             let graph = spar_state.graph.clone();
             tokio::task::spawn_blocking(move || {
                 graph.write().rebuild_sparsifier();
-            }).await.ok();
+            })
+            .await
+            .ok();
             let stats = spar_state.graph.read().sparsifier_stats();
             if let Some(s) = stats {
-                tracing::info!("Sparsifier built: {} edges, {:.1}x compression", s.sparsified_edges, s.compression_ratio);
+                tracing::info!(
+                    "Sparsifier built: {} edges, {:.1}x compression",
+                    s.sparsified_edges,
+                    s.compression_ratio
+                );
             } else {
                 tracing::warn!("Sparsifier build returned no stats");
             }

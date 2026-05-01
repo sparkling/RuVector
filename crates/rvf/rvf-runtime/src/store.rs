@@ -68,9 +68,6 @@ pub struct RvfStore {
     /// Hash of the last witness entry, used to chain-link successive witnesses.
     /// All zeros when no witness has been written yet (genesis).
     last_witness_hash: [u8; 32],
-    /// HNSW index for O(log n) approximate nearest neighbor search.
-    /// `None` when the store has zero vectors or the index hasn't been built yet.
-    hnsw_graph: Option<rvf_index::HnswGraph>,
 }
 
 impl RvfStore {
@@ -80,46 +77,14 @@ impl RvfStore {
             return Err(err(ErrorCode::InvalidManifest));
         }
 
-        // ADR-0095 amendment (2026-05-01, t3-2 silent-loss fix, swarm 2):
-        // take the flock BEFORE attempting `create_new`. The previous
-        // ordering had two cold-start peers race `OpenOptions::create_new`
-        // unsynchronised; the loser got EEXIST mapped to `FsyncFailed`
-        // (misleading), which the JS-side caller treated as fatal. The
-        // resulting silent-loss / loud-fail mix produced the residual 10%
-        // failure rate at low N in `diag-rvf-interproc-race.mjs`.
-        // Empirically confirmed by the instrumented diag's writer-3 stderr
-        // showing FsyncFailed at `attempts=1, elapsed=0ms` while writer-1
-        // wrote `.meta` cleanly — exactly the race shape predicted by the
-        // swarm but not previously closed.
-        //
-        // With the flock acquired first, only one process is inside this
-        // critical section at a time. The post-flock `path.exists()` check
-        // resolves the "create or open?" ambiguity atomically: if the file
-        // already exists at this point, a peer raced the lock and won;
-        // we return `LockHeld` (transient — caller retries as `open()`).
-        // The kernel flock guarantees FIFO ordering across processes, so
-        // every cold-start peer eventually gets to either create the file
-        // or open the file the previous peer just created.
-        let writer_lock = WriterLock::acquire(path).map_err(|_| err(ErrorCode::LockHeld))?;
-
-        // Now that we hold the flock, the create-vs-already-exists check
-        // is race-free. If the file appeared between the flock release of
-        // a prior peer and our acquire, fail with `AlreadyExists`.
-        // Distinct from `LockHeld` (transient — wait + retry); callers
-        // that want to "open if exists, create otherwise" should peek
-        // existence and dispatch between `open()` and `create()`.
-        if path.exists() {
-            // Drop the lock we just took so the open path can re-acquire.
-            drop(writer_lock);
-            return Err(err(ErrorCode::AlreadyExists));
-        }
-
         let file = OpenOptions::new()
             .read(true)
             .write(true)
             .create_new(true)
             .open(path)
             .map_err(|_| err(ErrorCode::FsyncFailed))?;
+
+        let writer_lock = WriterLock::acquire(path).map_err(|_| err(ErrorCode::LockHeld))?;
 
         // Generate a random file_id from path hash + timestamp
         let file_id = generate_file_id(path);
@@ -133,8 +98,6 @@ impl RvfStore {
 
         let mut opts = options.clone();
         opts.domain_profile = domain_profile;
-
-        let hnsw_cfg = hnsw_config_from_options(&opts);
 
         let mut store = Self {
             path: path.to_path_buf(),
@@ -154,60 +117,10 @@ impl RvfStore {
             membership_filter: None,
             parent_path: None,
             last_witness_hash: [0u8; 32],
-            hnsw_graph: Some(rvf_index::HnswGraph::new(&hnsw_cfg)),
         };
 
         store.write_manifest()?;
         Ok(store)
-    }
-
-    /// Atomically open an existing store or create a new one at `path`.
-    ///
-    /// Thread-safe entry point for cold-start contention. Concurrent peers
-    /// calling this method always end up with a working `RvfStore` handle:
-    /// exactly one peer performs the create; the others fall through to
-    /// the open path automatically.
-    ///
-    /// Behaviour:
-    /// 1. Optimistically dispatch on `path.exists()`:
-    ///    - If yes: `Self::open(path)`.
-    ///    - If no: `Self::create(path, options)`.
-    /// 2. If `Self::create` returns `Err(RvfError::Code(AlreadyExists))`
-    ///    — meaning a peer raced and won — fall back to `Self::open(path)`.
-    ///    `open` serializes through the kernel flock and will see the file
-    ///    the racing peer just committed.
-    ///
-    /// The race window between the optimistic exists check and the inner
-    /// `create` is bounded inside `create` itself: `create` takes the
-    /// kernel flock first and returns `AlreadyExists` if the file
-    /// appeared post-flock (ADR-0095 swarm-2 fix). The recovery here
-    /// turns that loud failure into a transparent retry on the open path.
-    ///
-    /// Use this when the caller doesn't care whether the store exists yet
-    /// — only that they end up with a working `RvfStore` handle. For
-    /// strict "must not exist" or "must exist" semantics, use `create` /
-    /// `open` directly.
-    ///
-    /// ADR-0095 (2026-05-01, swarm-2 final fix).
-    pub fn open_or_create(path: &Path, options: RvfOptions) -> Result<Self, RvfError> {
-        if options.dimension == 0 {
-            return Err(err(ErrorCode::InvalidManifest));
-        }
-
-        if path.exists() {
-            return Self::open(path);
-        }
-
-        match Self::create(path, options) {
-            Ok(store) => Ok(store),
-            Err(RvfError::Code(ErrorCode::AlreadyExists)) => {
-                // Peer won the create race — fall through to open.
-                // `open` serializes through the same kernel flock queue
-                // and will see the file the winner just committed.
-                Self::open(path)
-            }
-            Err(other) => Err(other),
-        }
     }
 
     /// Open an existing RVF store for read-write access.
@@ -254,7 +167,6 @@ impl RvfStore {
             membership_filter: None,
             parent_path: None,
             last_witness_hash: [0u8; 32],
-            hnsw_graph: None, // built in boot() after vectors are loaded
         };
 
         store.boot()?;
@@ -301,7 +213,6 @@ impl RvfStore {
             membership_filter: None,
             parent_path: None,
             last_witness_hash: [0u8; 32],
-            hnsw_graph: None, // built in boot() after vectors are loaded
         };
 
         store.boot()?;
@@ -382,19 +293,6 @@ impl RvfStore {
             self.vectors.insert(vec_id, vec_data.to_vec());
         }
 
-        // Insert newly ingested vectors into the HNSW index.
-        if let Some(ref mut graph) = self.hnsw_graph {
-            let metric = self.options.metric;
-            let dist_fn = |a: &[f32], b: &[f32]| -> f32 { compute_distance(a, b, &metric) };
-            for &vec_id in &valid_ids {
-                let rng_val = deterministic_hash(vec_id);
-                let adapter = VectorDataAdapter {
-                    vectors: &self.vectors,
-                };
-                graph.insert(vec_id, rng_val, &adapter, &dist_fn);
-            }
-        }
-
         if let Some(meta_entries) = metadata {
             let entries_per_id = meta_entries.len() / valid_ids.len().max(1);
             if entries_per_id > 0 {
@@ -432,10 +330,6 @@ impl RvfStore {
     }
 
     /// Query the store for the k nearest neighbors of the given vector.
-    ///
-    /// When an HNSW index is available, performs O(log n) approximate search
-    /// with post-hoc deletion/metadata filtering. Falls back to brute-force
-    /// linear scan when no index is present.
     pub fn query(
         &self,
         vector: &[f32],
@@ -451,56 +345,8 @@ impl RvfStore {
             return Ok(Vec::new());
         }
 
-        // Try HNSW search first.
-        if let Some(ref graph) = self.hnsw_graph {
-            if graph.node_count() > 0 {
-                let adapter = VectorDataAdapter {
-                    vectors: &self.vectors,
-                };
-                let metric = self.options.metric;
-                let dist_fn =
-                    |a: &[f32], b: &[f32]| -> f32 { compute_distance(a, b, &metric) };
-                // ef_search must be at least k to guarantee enough candidates.
-                let ef_search = (options.ef_search as usize).max(k);
-                // Ask HNSW for more candidates than k to account for
-                // deletions and metadata filters that will thin the set.
-                let hnsw_ef = if options.filter.is_some() {
-                    ef_search * 4
-                } else {
-                    ef_search
-                };
-                // Pass hnsw_ef as the k argument too — HNSW truncates output
-                // to k internally, so we need enough pre-filter candidates to
-                // survive deletion bitmap + metadata filtering.
-                let candidates =
-                    graph.search(vector, hnsw_ef, hnsw_ef, &adapter, &dist_fn);
-
-                // Filter by deletion bitmap and metadata, take top k.
-                let mut results: Vec<SearchResult> = Vec::new();
-                for (id, dist) in candidates {
-                    if self.deletion_bitmap.is_deleted(id) {
-                        continue;
-                    }
-                    if let Some(ref filter_expr) = options.filter {
-                        if !filter::evaluate(filter_expr, id, &self.metadata) {
-                            continue;
-                        }
-                    }
-                    results.push(SearchResult {
-                        id,
-                        distance: dist,
-                        retrieval_quality: rvf_types::quality::RetrievalQuality::Full,
-                    });
-                    if results.len() >= k {
-                        break;
-                    }
-                }
-                return Ok(results);
-            }
-        }
-
-        // Fallback: brute-force linear scan (O(n)).
-        // Used when no HNSW index is present or the graph is empty.
+        // Max-heap: peek() returns the largest (farthest) distance in our k set.
+        // When a closer vector is found, evict the farthest.
         let mut heap: BinaryHeap<(OrderedFloat, u64)> = BinaryHeap::new();
 
         for &vec_id in self.vectors.ids() {
@@ -975,26 +821,6 @@ impl RvfStore {
         self.segment_dir = new_segment_dir;
         self.seg_writer = Some(seg_writer);
         self.last_compaction_time = now_secs();
-
-        // Rebuild HNSW index from surviving vectors after compaction.
-        if self.vectors.len() > 0 {
-            let hnsw_cfg = hnsw_config_from_options(&self.options);
-            let mut graph = rvf_index::HnswGraph::new(&hnsw_cfg);
-            let metric = self.options.metric;
-            let dist_fn = |a: &[f32], b: &[f32]| -> f32 { compute_distance(a, b, &metric) };
-            let ids: Vec<u64> = self.vectors.ids().copied().collect();
-            for id in ids {
-                let rng_val = deterministic_hash(id);
-                let adapter = VectorDataAdapter {
-                    vectors: &self.vectors,
-                };
-                graph.insert(id, rng_val, &adapter, &dist_fn);
-            }
-            self.hnsw_graph = Some(graph);
-        } else {
-            let hnsw_cfg = hnsw_config_from_options(&self.options);
-            self.hnsw_graph = Some(rvf_index::HnswGraph::new(&hnsw_cfg));
-        }
 
         // Reset witness chain after compaction (the file has been rewritten).
         self.last_witness_hash = [0u8; 32];
@@ -1803,8 +1629,6 @@ impl RvfStore {
         let mut child_opts = opts;
         child_opts.domain_profile = domain_profile;
 
-        let child_hnsw_cfg = hnsw_config_from_options(&child_opts);
-
         let mut store = Self {
             path: child_path.to_path_buf(),
             options: child_opts,
@@ -1823,7 +1647,6 @@ impl RvfStore {
             membership_filter: None,
             parent_path: Some(self.path.clone()),
             last_witness_hash: [0u8; 32],
-            hnsw_graph: Some(rvf_index::HnswGraph::new(&child_hnsw_cfg)),
         };
 
         store.write_manifest()?;
@@ -1978,27 +1801,6 @@ impl RvfStore {
             self.file_identity = fi;
         }
 
-        // Rebuild the HNSW index from vectors loaded off disk.
-        // Always initialise even for empty stores so that subsequent
-        // ingest_batch() calls can insert into the graph immediately.
-        let hnsw_cfg = hnsw_config_from_options(&self.options);
-        let mut graph = rvf_index::HnswGraph::new(&hnsw_cfg);
-        if self.vectors.len() > 0 {
-            let metric = self.options.metric;
-            let dist_fn = |a: &[f32], b: &[f32]| -> f32 { compute_distance(a, b, &metric) };
-            // Collect IDs so we don't borrow self.vectors mutably via the adapter
-            // while iterating.
-            let ids: Vec<u64> = self.vectors.ids().copied().collect();
-            for id in ids {
-                let rng_val = deterministic_hash(id);
-                let adapter = VectorDataAdapter {
-                    vectors: &self.vectors,
-                };
-                graph.insert(id, rng_val, &adapter, &dist_fn);
-            }
-        }
-        self.hnsw_graph = Some(graph);
-
         if !self.read_only {
             let max_seg_id = self
                 .segment_dir
@@ -2115,45 +1917,6 @@ impl Ord for OrderedFloat {
         self.0
             .partial_cmp(&other.0)
             .unwrap_or(std::cmp::Ordering::Equal)
-    }
-}
-
-/// Adapter that lets `rvf_index::HnswGraph` access vectors stored in
-/// `VectorData` via the `rvf_index::VectorStore` trait.
-struct VectorDataAdapter<'a> {
-    vectors: &'a VectorData,
-}
-
-impl<'a> rvf_index::VectorStore for VectorDataAdapter<'a> {
-    fn get_vector(&self, id: u64) -> Option<&[f32]> {
-        self.vectors.get(id)
-    }
-
-    fn dimension(&self) -> usize {
-        self.vectors.dimension as usize
-    }
-}
-
-/// Deterministic hash mapping a vector ID to a value in (0, 1) for HNSW
-/// level selection. Uses Murmur3-style bit mixing (splitmix64 finalizer).
-fn deterministic_hash(id: u64) -> f64 {
-    let mut h = id;
-    h ^= h >> 33;
-    h = h.wrapping_mul(0xff51afd7ed558ccd);
-    h ^= h >> 33;
-    h = h.wrapping_mul(0xc4ceb9fe1a85ec53);
-    h ^= h >> 33;
-    // Map to (0, 1) — clamp to avoid exact 0.0 which would cause -ln(0) = inf.
-    let val = (h as f64) / (u64::MAX as f64);
-    val.clamp(1e-10, 1.0 - 1e-10)
-}
-
-/// Build an `HnswConfig` from the store's `RvfOptions`.
-fn hnsw_config_from_options(options: &RvfOptions) -> rvf_index::HnswConfig {
-    rvf_index::HnswConfig {
-        m: options.m as usize,
-        m0: (options.m as usize) * 2,
-        ef_construction: options.ef_construction as usize,
     }
 }
 
@@ -2999,259 +2762,5 @@ mod tests {
         assert_ne!(store.last_witness_hash(), &[0u8; 32]);
 
         store.close().unwrap();
-    }
-
-    // ---- HNSW integration tests ----
-
-    /// Verify that HNSW-backed query returns the same top-k results as brute-force.
-    #[test]
-    fn hnsw_matches_brute_force() {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().join("hnsw_bf.rvf");
-
-        let dim = 16;
-        let n = 200;
-        let k = 10;
-
-        let options = RvfOptions {
-            dimension: dim as u16,
-            metric: DistanceMetric::L2,
-            m: 16,
-            ef_construction: 200,
-            ..Default::default()
-        };
-
-        let mut store = RvfStore::create(&path, options.clone()).unwrap();
-        assert!(store.hnsw_graph.is_some(), "HNSW graph should be initialized on create");
-
-        let vecs: Vec<Vec<f32>> = (0..n).map(|i| random_vector(dim, i)).collect();
-        let vec_refs: Vec<&[f32]> = vecs.iter().map(|v| v.as_slice()).collect();
-        let ids: Vec<u64> = (0..n).collect();
-        store.ingest_batch(&vec_refs, &ids, None).unwrap();
-
-        // Query with HNSW.
-        let query_vec = random_vector(dim, 42);
-        let hnsw_results = store
-            .query(&query_vec, k, &QueryOptions::default())
-            .unwrap();
-
-        // Compute brute-force ground truth.
-        let mut all_dists: Vec<(u64, f32)> = (0..n as u64)
-            .map(|i| {
-                let dist = compute_distance(&query_vec, &vecs[i as usize], &DistanceMetric::L2);
-                (i, dist)
-            })
-            .collect();
-        all_dists.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-        let bf_top_k: Vec<u64> = all_dists.iter().take(k).map(|&(id, _)| id).collect();
-
-        // HNSW should find the exact nearest neighbor (id=42, distance=0).
-        assert_eq!(hnsw_results[0].id, 42);
-        assert!(hnsw_results[0].distance < f32::EPSILON);
-
-        // At least 90% overlap with brute-force (HNSW is approximate but with
-        // ef_search=100 on 200 vectors it should be exact or near-exact).
-        let hnsw_ids: std::collections::HashSet<u64> =
-            hnsw_results.iter().map(|r| r.id).collect();
-        let bf_ids: std::collections::HashSet<u64> =
-            bf_top_k.iter().copied().collect();
-        let overlap = hnsw_ids.intersection(&bf_ids).count();
-        assert!(
-            overlap >= k * 9 / 10,
-            "HNSW recall too low: {}/{} overlap",
-            overlap,
-            k
-        );
-
-        store.close().unwrap();
-    }
-
-    /// Verify that HNSW graph survives an open/close cycle (rebuilt from disk).
-    #[test]
-    fn hnsw_survives_reopen() {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().join("hnsw_reopen.rvf");
-        let dim = 4;
-
-        let options = RvfOptions {
-            dimension: dim as u16,
-            metric: DistanceMetric::L2,
-            m: 8,
-            ef_construction: 100,
-            ..Default::default()
-        };
-
-        // Create and ingest.
-        {
-            let mut store = RvfStore::create(&path, options.clone()).unwrap();
-            let v1 = vec![1.0, 0.0, 0.0, 0.0];
-            let v2 = vec![0.0, 1.0, 0.0, 0.0];
-            let v3 = vec![0.0, 0.0, 1.0, 0.0];
-            let vecs: Vec<&[f32]> = vec![&v1, &v2, &v3];
-            let ids = vec![10, 20, 30];
-            store.ingest_batch(&vecs, &ids, None).unwrap();
-            assert!(store.hnsw_graph.as_ref().unwrap().node_count() == 3);
-            store.close().unwrap();
-        }
-
-        // Reopen and verify HNSW was rebuilt.
-        {
-            let store = RvfStore::open(&path).unwrap();
-            assert!(store.hnsw_graph.is_some(), "HNSW graph should be rebuilt on open");
-            assert_eq!(store.hnsw_graph.as_ref().unwrap().node_count(), 3);
-
-            // Query should use HNSW and return correct results.
-            let query = vec![1.0, 0.0, 0.0, 0.0];
-            let results = store.query(&query, 2, &QueryOptions::default()).unwrap();
-            assert_eq!(results.len(), 2);
-            assert_eq!(results[0].id, 10);
-            assert!(results[0].distance < f32::EPSILON);
-
-            store.close().unwrap();
-        }
-    }
-
-    /// Verify that HNSW-backed query correctly filters deleted vectors.
-    #[test]
-    fn hnsw_respects_deletions() {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().join("hnsw_del.rvf");
-        let dim = 4;
-
-        let options = RvfOptions {
-            dimension: dim as u16,
-            metric: DistanceMetric::L2,
-            m: 8,
-            ef_construction: 100,
-            ..Default::default()
-        };
-
-        let mut store = RvfStore::create(&path, options).unwrap();
-        let v1 = vec![1.0, 0.0, 0.0, 0.0];
-        let v2 = vec![0.9, 0.1, 0.0, 0.0]; // very close to v1
-        let v3 = vec![0.0, 0.0, 0.0, 1.0]; // far from v1
-        let vecs: Vec<&[f32]> = vec![&v1, &v2, &v3];
-        let ids = vec![1, 2, 3];
-        store.ingest_batch(&vecs, &ids, None).unwrap();
-
-        // Delete the nearest neighbor to v1.
-        store.delete(&[1]).unwrap();
-
-        let query = vec![1.0, 0.0, 0.0, 0.0];
-        let results = store.query(&query, 10, &QueryOptions::default()).unwrap();
-        assert_eq!(results.len(), 2);
-        assert!(results.iter().all(|r| r.id != 1), "deleted vector should not appear");
-        // v2 should be the nearest.
-        assert_eq!(results[0].id, 2);
-
-        store.close().unwrap();
-    }
-
-    /// Verify that HNSW-backed query respects metadata filters.
-    #[test]
-    fn hnsw_respects_metadata_filters() {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().join("hnsw_filter.rvf");
-        let dim = 4;
-
-        let options = RvfOptions {
-            dimension: dim as u16,
-            metric: DistanceMetric::L2,
-            m: 8,
-            ef_construction: 100,
-            ..Default::default()
-        };
-
-        let mut store = RvfStore::create(&path, options).unwrap();
-        let v1 = vec![1.0, 0.0, 0.0, 0.0];
-        let v2 = vec![0.9, 0.1, 0.0, 0.0];
-        let v3 = vec![0.0, 0.0, 1.0, 0.0];
-        let vecs: Vec<&[f32]> = vec![&v1, &v2, &v3];
-        let ids = vec![1, 2, 3];
-        let metadata = vec![
-            MetadataEntry {
-                field_id: 0,
-                value: MetadataValue::String("alpha".into()),
-            },
-            MetadataEntry {
-                field_id: 0,
-                value: MetadataValue::String("beta".into()),
-            },
-            MetadataEntry {
-                field_id: 0,
-                value: MetadataValue::String("alpha".into()),
-            },
-        ];
-        store.ingest_batch(&vecs, &ids, Some(&metadata)).unwrap();
-
-        let query = vec![1.0, 0.0, 0.0, 0.0];
-        let query_opts = QueryOptions {
-            filter: Some(FilterExpr::Eq(0, FilterValue::String("alpha".into()))),
-            ..Default::default()
-        };
-        let results = store.query(&query, 10, &query_opts).unwrap();
-        assert_eq!(results.len(), 2);
-        assert!(results.iter().all(|r| r.id == 1 || r.id == 3));
-
-        store.close().unwrap();
-    }
-
-    /// Verify that HNSW index is rebuilt after compaction.
-    #[test]
-    fn hnsw_rebuilt_after_compact() {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().join("hnsw_compact.rvf");
-        let dim = 4;
-
-        let options = RvfOptions {
-            dimension: dim as u16,
-            metric: DistanceMetric::L2,
-            m: 8,
-            ef_construction: 100,
-            witness: WitnessConfig {
-                witness_ingest: false,
-                witness_delete: false,
-                witness_compact: false,
-                audit_queries: false,
-            },
-            ..Default::default()
-        };
-
-        let mut store = RvfStore::create(&path, options).unwrap();
-        let v1 = vec![1.0, 0.0, 0.0, 0.0];
-        let v2 = vec![0.0, 1.0, 0.0, 0.0];
-        let v3 = vec![0.0, 0.0, 1.0, 0.0];
-        let vecs: Vec<&[f32]> = vec![&v1, &v2, &v3];
-        let ids = vec![1, 2, 3];
-        store.ingest_batch(&vecs, &ids, None).unwrap();
-
-        // Delete vector 2 and compact.
-        store.delete(&[2]).unwrap();
-        store.compact().unwrap();
-
-        // HNSW should have been rebuilt with only 2 nodes.
-        assert_eq!(store.hnsw_graph.as_ref().unwrap().node_count(), 2);
-
-        // Query should work and not return deleted vector.
-        let query = vec![0.0, 1.0, 0.0, 0.0];
-        let results = store.query(&query, 10, &QueryOptions::default()).unwrap();
-        assert_eq!(results.len(), 2);
-        assert!(results.iter().all(|r| r.id != 2));
-
-        store.close().unwrap();
-    }
-
-    /// Verify the deterministic_hash helper produces values in (0, 1).
-    #[test]
-    fn deterministic_hash_range() {
-        for id in 0..10_000u64 {
-            let h = deterministic_hash(id);
-            assert!(h > 0.0 && h < 1.0, "hash({}) = {} out of range", id, h);
-        }
-        // Two different IDs should produce different hashes (not strictly guaranteed
-        // but practically true for a good hash function).
-        let h0 = deterministic_hash(0);
-        let h1 = deterministic_hash(1);
-        assert!((h0 - h1).abs() > f64::EPSILON, "hash collision for 0 and 1");
     }
 }

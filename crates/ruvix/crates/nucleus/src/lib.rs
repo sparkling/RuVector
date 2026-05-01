@@ -59,33 +59,33 @@
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
+mod checkpoint;
+mod graph_store;
 mod kernel;
 mod proof_engine;
 mod scheduler;
 mod syscall;
-mod witness_log;
 mod vector_store;
-mod graph_store;
-mod checkpoint;
+mod witness_log;
 
 #[cfg(feature = "shell")]
 mod shell_backend;
 
+pub use checkpoint::{Checkpoint, CheckpointConfig, ReplayEngine};
+pub use graph_store::{GraphEdge, GraphNode, GraphStore};
 pub use kernel::{Kernel, KernelConfig, KernelStats};
 pub use proof_engine::{ProofEngine, ProofEngineConfig, ProofVerifyResult};
 pub use scheduler::{Scheduler, SchedulerConfig, TaskState};
-pub use syscall::{Syscall, SyscallResult, AttestPayload};
-pub use witness_log::{WitnessLog, WitnessRecord, WitnessRecordKind};
+pub use syscall::{AttestPayload, Syscall, SyscallResult};
 pub use vector_store::{VectorStore, VectorStoreEntry};
-pub use graph_store::{GraphStore, GraphNode, GraphEdge};
-pub use checkpoint::{Checkpoint, CheckpointConfig, ReplayEngine};
+pub use witness_log::{WitnessLog, WitnessRecord, WitnessRecordKind};
 
 // Re-export commonly used types from dependencies
 pub use ruvix_types::{
-    CapHandle, CapRights, GraphHandle, GraphMutation, KernelError, MsgPriority,
-    ProofAttestation, ProofPayload, ProofTier, ProofToken, QueueHandle, RegionHandle,
-    RegionPolicy, RvfComponentId, RvfMountHandle, SensorDescriptor, SubscriptionHandle,
-    TaskHandle, TimerSpec, VectorKey, VectorStoreConfig, VectorStoreHandle,
+    CapHandle, CapRights, GraphHandle, GraphMutation, KernelError, MsgPriority, ProofAttestation,
+    ProofPayload, ProofTier, ProofToken, QueueHandle, RegionHandle, RegionPolicy, RvfComponentId,
+    RvfMountHandle, SensorDescriptor, SubscriptionHandle, TaskHandle, TimerSpec, VectorKey,
+    VectorStoreConfig, VectorStoreHandle,
 };
 
 use ruvix_types::KernelError as Error;
@@ -102,23 +102,18 @@ pub type Duration = std::time::Duration;
 pub use ruvix_queue::Duration;
 
 /// Task priority levels for scheduling.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u8)]
 pub enum TaskPriority {
     /// Background tasks with no deadline.
     Background = 0,
     /// Normal priority tasks.
+    #[default]
     Normal = 1,
     /// High priority tasks.
     High = 2,
     /// Real-time tasks with strict deadlines.
     RealTime = 3,
-}
-
-impl Default for TaskPriority {
-    fn default() -> Self {
-        Self::Normal
-    }
 }
 
 #[cfg(test)]

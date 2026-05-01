@@ -12,8 +12,8 @@
 //! - Signature size: 3309 bytes
 //! - Public key size: 1952 bytes
 
-use sha2::{Sha256, Digest};
 use ruvix_types::KernelError;
+use sha2::{Digest, Sha256};
 
 /// ML-DSA-65 signature size in bytes.
 pub const SIGNATURE_SIZE: usize = 3309;
@@ -76,23 +76,37 @@ pub struct SignatureVerifier {
 impl SignatureVerifier {
     /// Creates a new signature verifier with the given public key.
     ///
-    /// # Panics
+    /// Returns `Err(KernelError::InvalidArgument)` if the public key has wrong length.
     ///
-    /// Panics if the public key has wrong length.
-    #[must_use]
-    pub fn new(public_key: &[u8]) -> Self {
-        assert_eq!(
-            public_key.len(),
-            PUBLIC_KEY_SIZE,
-            "FATAL: Boot public key has wrong length: {} (expected {})",
-            public_key.len(),
-            PUBLIC_KEY_SIZE
-        );
+    /// # Errors
+    ///
+    /// Returns `KernelError::InvalidArgument` if `public_key.len() != PUBLIC_KEY_SIZE`.
+    pub fn try_new(public_key: &[u8]) -> Result<Self, KernelError> {
+        if public_key.len() != PUBLIC_KEY_SIZE {
+            return Err(KernelError::InvalidArgument);
+        }
 
         let mut pk = [0u8; PUBLIC_KEY_SIZE];
         pk.copy_from_slice(public_key);
 
-        Self { public_key: pk }
+        Ok(Self { public_key: pk })
+    }
+
+    /// Creates a new signature verifier with the given public key.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the public key has wrong length. Prefer [`try_new`](Self::try_new)
+    /// when handling untrusted input.
+    #[must_use]
+    pub fn new(public_key: &[u8]) -> Self {
+        Self::try_new(public_key).unwrap_or_else(|_| {
+            panic!(
+                "FATAL: Boot public key has wrong length: {} (expected {})",
+                public_key.len(),
+                PUBLIC_KEY_SIZE
+            )
+        })
     }
 
     /// Creates a verifier with an all-zeros key (for testing only).
@@ -145,7 +159,10 @@ impl SignatureVerifier {
             _ => {
                 // SEC-001: PANIC IMMEDIATELY on signature failure
                 // No diagnostic information beyond the error type (prevents oracle attacks)
-                eprintln!("FATAL: Boot signature verification failed: {}", result.as_str());
+                eprintln!(
+                    "FATAL: Boot signature verification failed: {}",
+                    result.as_str()
+                );
                 panic!("Boot signature verification failed");
             }
         }
@@ -233,7 +250,13 @@ impl SignatureVerifier {
 /// ```
 #[allow(dead_code)]
 pub fn verify_boot_signature(public_key: &[u8], manifest: &[u8], signature: &[u8]) {
-    let verifier = SignatureVerifier::new(public_key);
+    let verifier = SignatureVerifier::try_new(public_key).unwrap_or_else(|_| {
+        panic!(
+            "FATAL: Boot public key has wrong length: {} (expected {})",
+            public_key.len(),
+            PUBLIC_KEY_SIZE
+        )
+    });
     verifier.verify_boot_signature(manifest, signature);
 }
 
@@ -344,9 +367,18 @@ mod tests {
 
     #[test]
     fn test_verify_result_to_kernel_error() {
-        assert_eq!(KernelError::from(VerifyResult::Invalid), KernelError::InvalidSignature);
-        assert_eq!(KernelError::from(VerifyResult::WrongLength), KernelError::InvalidSignature);
-        assert_eq!(KernelError::from(VerifyResult::HashMismatch), KernelError::InvalidSignature);
+        assert_eq!(
+            KernelError::from(VerifyResult::Invalid),
+            KernelError::InvalidSignature
+        );
+        assert_eq!(
+            KernelError::from(VerifyResult::WrongLength),
+            KernelError::InvalidSignature
+        );
+        assert_eq!(
+            KernelError::from(VerifyResult::HashMismatch),
+            KernelError::InvalidSignature
+        );
     }
 
     #[test]

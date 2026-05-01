@@ -21,7 +21,7 @@ export declare function init(): string
  * console.log(gt.version());
  * ```
  */
-export class GraphTransformer {
+export declare class GraphTransformer {
   /**
    * Create a new Graph Transformer instance.
    *

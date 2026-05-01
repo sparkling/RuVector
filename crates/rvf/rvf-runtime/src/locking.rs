@@ -1,259 +1,349 @@
 //! Writer lock management for single-writer / multi-reader concurrency.
 //!
-//! ADR-0095 amendment (2026-05-01, t3-2 fix — fork-only, sparkleideas/ruvector):
-//! the original implementation used `O_CREAT|O_EXCL` with a PID-stamped lock
-//! file and userspace stale-detection. Under N concurrent CLI processes that
-//! design produced two failure modes:
-//!
-//!   1. **LockHeld budget exhaustion.** `O_CREAT|O_EXCL` returns `WouldBlock`
-//!      immediately on contention, never blocks; callers had to retry from
-//!      userspace with a 5s budget. The native `RvfStore` holds the lock for
-//!      its entire lifetime (= whole CLI process), so the last-in-line writer
-//!      among N=6 must wait for all N-1 prior writers to fully exit (~1-3s
-//!      each) — easily exceeding the 5s retry budget.
-//!
-//!   2. **PID-stale-detection races.** Process death between writing the lock
-//!      file and acquiring it leaves an orphan; if the next peer reads the
-//!      stale lock and the dead PID is reused (or the OS recycles it before
-//!      the 30s threshold elapses), the next acquirer is blocked or — worse
-//!      — both peers think they hold the lock.
-//!
-//! The replacement: kernel `flock(LOCK_EX)` on a sibling `.lock` file that is
-//! never unlinked. This gives us:
-//!
-//!   - **FIFO blocking.** `LOCK_EX` queues writers in the kernel; no
-//!     userspace retry budget, no fairness pathologies.
-//!   - **Auto-release on process death.** Kernel closes all fds when a
-//!     process exits — including when N-API skips Rust `Drop` due to
-//!     `process.exit(0)`. The flock is dropped with the fd. No stale-lock
-//!     detection needed.
-//!   - **Same-inode flock queue.** Because the lock file is never unlinked,
-//!     concurrent opens all share the same inode, so all peers join the
-//!     same kernel flock queue.
-//!
-//! The same pattern is already used by the fork-side `IngestLockGuard` in
-//! `rvf-node/src/lib.rs:45-114`. This change extends it to cover the
-//! `RvfStore::create/open/derive` paths previously guarded by the broken
-//! O_EXCL `WriterLock`.
-//!
-//! Public API is preserved: `WriterLock::acquire`, `release`, `Drop`,
-//! `is_valid`, and `lock_path_for` all still exist with the same signatures
-//! so `store.rs` does not need changes. `acquire` now BLOCKS instead of
-//! returning `WouldBlock` on contention — callers that wrapped the failure
-//! in `LockHeld` retry loops will simply never see those errors.
-//!
-//! Platform support: Unix only (Linux, macOS, BSD). Windows gets a no-op
-//! stub matching `IngestLockGuard`'s pattern (out of scope per ADR-0095).
+//! Implements the advisory lock file protocol from spec 09:
+//! - Lock file at `{path}.lock` with PID, hostname, timestamp, UUID
+//! - Stale lock detection via PID liveness and age threshold
+//! - Atomic creation via O_CREAT | O_EXCL
 
-use std::io;
+use std::fs;
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
-#[cfg(unix)]
-use std::collections::HashMap;
-#[cfg(unix)]
-use std::sync::Mutex;
+/// The lock file magic: "RVLF" in ASCII (big-endian).
+const LOCK_MAGIC: u32 = 0x52564C46;
 
-#[cfg(unix)]
-fn process_local_holders() -> &'static Mutex<HashMap<PathBuf, usize>> {
-    // Process-local registry of paths this process already holds the
-    // flock for. flock(LOCK_EX) is per-fd on Linux/macOS — a second fd
-    // opened in the SAME process and flocked will block waiting for the
-    // first fd to release. Two in-process `RvfStore` instances on the
-    // same path is a real pattern (tests construct N RvfBackend objects
-    // concurrently to simulate cross-process behaviour; production hooks
-    // do it accidentally). For the in-process repeat case we want
-    // success, not a deadlock — the first holder is already enforcing
-    // exclusion against any peer process.
-    //
-    // The map's value is a refcount: nested in-process acquisitions are
-    // common (router-level ensure-init + per-store acquire). The lock is
-    // released only when refcount drops to zero.
-    use std::sync::OnceLock;
-    static H: OnceLock<Mutex<HashMap<PathBuf, usize>>> = OnceLock::new();
-    H.get_or_init(|| Mutex::new(HashMap::new()))
-}
+/// Lock protocol version.
+const LOCK_VERSION: u32 = 1;
+
+/// Lock file total size in bytes.
+const LOCK_FILE_SIZE: usize = 104;
+
+/// Stale lock age threshold for same-host (30 seconds in nanoseconds).
+const STALE_AGE_NS: u64 = 30_000_000_000;
 
 /// Represents an acquired writer lock.
-///
-/// On Unix this owns a file descriptor with `flock(LOCK_EX)` held. On Drop
-/// the fd is closed (which releases the flock automatically per POSIX
-/// semantics), and we additionally call `flock(LOCK_UN)` explicitly so
-/// queued peers wake up deterministically.
-///
-/// In-process repeat acquisitions on the same path do NOT take a new
-/// kernel flock — they bump a process-local refcount and return.
 pub(crate) struct WriterLock {
-    #[cfg(unix)]
-    fd: libc::c_int, // -1 sentinel = process-local refcount holder, no real fd
-    #[cfg(unix)]
     lock_path: PathBuf,
-    #[cfg(not(unix))]
-    _phantom: (),
+    writer_id: [u8; 16],
 }
 
 impl WriterLock {
-    /// Acquire the writer lock for the given RVF file path.
+    /// Attempt to acquire the writer lock for the given RVF file path.
     ///
-    /// **Blocking on Unix.** Waits in the kernel flock queue until any
-    /// peer's lock is released. Returns `Ok(WriterLock)` on success or an
-    /// `io::Error` only on syscall failure (ENFILE, EACCES, etc.) — never on
-    /// contention.
-    ///
-    /// On non-Unix platforms this is currently a no-op (the previous PID-
-    /// based implementation never worked correctly on Windows either, since
-    /// `kill(pid, 0)` is Unix-specific). A real Windows implementation
-    /// would use `LockFileEx`.
+    /// Returns `Ok(WriterLock)` on success, or an `io::Error` if the lock
+    /// is held by another active writer.
     pub(crate) fn acquire(rvf_path: &Path) -> io::Result<Self> {
-        #[cfg(unix)]
-        {
-            use std::ffi::CString;
-            use std::os::unix::ffi::OsStrExt;
+        let lock_path = lock_path_for(rvf_path);
+        let pid = std::process::id();
+        let hostname = get_hostname();
+        let timestamp_ns = now_ns();
+        let writer_id = random_uuid();
 
-            let lock_path = lock_path_for(rvf_path);
+        // Build lock file content.
+        let content = build_lock_content(pid, &hostname, timestamp_ns, &writer_id);
 
-            // Process-local short-circuit: if this process already holds
-            // the flock for `lock_path`, just bump the refcount and return
-            // a sentinel guard (fd = -1). The kernel flock is per-fd and
-            // would deadlock against ourselves otherwise.
-            {
-                let mut holders = process_local_holders().lock().unwrap();
-                if let Some(refcount) = holders.get_mut(&lock_path) {
-                    *refcount += 1;
-                    return Ok(WriterLock { fd: -1, lock_path });
+        // Attempt atomic creation.
+        match atomic_create_file(&lock_path, &content) {
+            Ok(()) => Ok(WriterLock {
+                lock_path,
+                writer_id,
+            }),
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
+                // Check for stale lock.
+                if try_break_stale_lock(&lock_path)? {
+                    // Retry after breaking stale lock.
+                    atomic_create_file(&lock_path, &content)?;
+                    Ok(WriterLock {
+                        lock_path,
+                        writer_id,
+                    })
+                } else {
+                    Err(io::Error::new(
+                        io::ErrorKind::WouldBlock,
+                        "another writer holds the lock",
+                    ))
                 }
-                // Not yet held — fall through to acquire the real flock.
-                // We'll insert into the map AFTER successful flock.
             }
-
-            let c_path = CString::new(lock_path.as_os_str().as_bytes())
-                .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
-
-            // O_CREAT|O_RDWR, mode 0o644. The file is NEVER unlinked, so
-            // concurrent opens across processes all refer to the same inode
-            // and join the same kernel flock queue.
-            let fd = unsafe {
-                libc::open(
-                    c_path.as_ptr(),
-                    libc::O_RDWR | libc::O_CREAT | libc::O_CLOEXEC,
-                    0o644,
-                )
-            };
-            if fd < 0 {
-                return Err(io::Error::last_os_error());
-            }
-
-            // Blocking exclusive lock. LOCK_EX serializes every writer
-            // across processes; the process-local short-circuit above
-            // handles same-process repeat. Kernel handles fairness and
-            // auto-release on process death.
-            let rc = unsafe { libc::flock(fd, libc::LOCK_EX) };
-            if rc != 0 {
-                let err = io::Error::last_os_error();
-                unsafe { libc::close(fd) };
-                return Err(err);
-            }
-
-            // Now record the holder so future same-process acquisitions
-            // hit the short-circuit above.
-            {
-                let mut holders = process_local_holders().lock().unwrap();
-                holders.insert(lock_path.clone(), 1);
-            }
-
-            Ok(WriterLock { fd, lock_path })
-        }
-        #[cfg(not(unix))]
-        {
-            let _ = rvf_path;
-            Ok(WriterLock { _phantom: () })
+            Err(e) => Err(e),
         }
     }
 
-    /// Release the writer lock explicitly.
+    /// Release the writer lock.
     ///
-    /// Equivalent to dropping the guard. Kept for API compatibility with the
-    /// previous implementation (`store.rs:946-947` calls this in `close()`).
+    /// Verifies that the lock file still contains our writer_id before
+    /// removing it, preventing deletion of a lock legitimately taken over.
     pub(crate) fn release(self) -> io::Result<()> {
-        // Drop runs automatically when `self` goes out of scope at end of
-        // function; explicit drop is unnecessary but harmless.
-        drop(self);
+        // Verify our writer_id is still in the lock.
+        if let Ok(content) = fs::read(&self.lock_path) {
+            if content.len() >= LOCK_FILE_SIZE {
+                let stored_id = &content[0x50..0x60];
+                if stored_id == self.writer_id {
+                    let _ = fs::remove_file(&self.lock_path);
+                }
+            }
+        }
         Ok(())
     }
 
     /// Check if the lock is still held by us.
-    ///
-    /// Under the new flock-based design this is always `true` for a
-    /// successfully-acquired guard until it is dropped — there is no
-    /// "lock taken over" condition the way the PID-file design had. Kept
-    /// for API compatibility with the old implementation's caller surface.
     #[allow(dead_code)]
     pub(crate) fn is_valid(&self) -> bool {
-        #[cfg(unix)]
-        {
-            self.fd >= 0
+        if let Ok(content) = fs::read(&self.lock_path) {
+            if content.len() >= LOCK_FILE_SIZE {
+                let stored_id = &content[0x50..0x60];
+                return stored_id == self.writer_id;
+            }
         }
-        #[cfg(not(unix))]
-        {
-            true
-        }
+        false
     }
 }
 
-#[cfg(unix)]
 impl Drop for WriterLock {
     fn drop(&mut self) {
-        // Decrement the process-local refcount. If we were a sentinel
-        // (fd == -1, in-process repeat acquisition), there's no real
-        // flock to release. If refcount drops to zero, release the real
-        // flock + close the fd held by the original acquirer.
-        let mut release_kernel_flock = false;
-        {
-            let mut holders = process_local_holders().lock().unwrap();
-            if let Some(refcount) = holders.get_mut(&self.lock_path) {
-                if *refcount > 1 {
-                    *refcount -= 1;
-                } else {
-                    holders.remove(&self.lock_path);
-                    // The acquisition that set refcount=1 is the one
-                    // holding the real fd. If that's THIS guard, release
-                    // the kernel flock. Sentinel guards (fd=-1) don't.
-                    if self.fd >= 0 {
-                        release_kernel_flock = true;
-                    }
+        // Best-effort release on drop.
+        if let Ok(content) = fs::read(&self.lock_path) {
+            if content.len() >= LOCK_FILE_SIZE {
+                let stored_id = &content[0x50..0x60];
+                if stored_id == self.writer_id {
+                    let _ = fs::remove_file(&self.lock_path);
                 }
             }
         }
-        if release_kernel_flock {
-            // Best-effort release. close() alone is enough — kernel reaps
-            // fd state on process death too. Explicit LOCK_UN wakes
-            // queued peers deterministically.
-            unsafe {
-                libc::flock(self.fd, libc::LOCK_UN);
-                libc::close(self.fd);
-            }
-        }
-    }
-}
-
-#[cfg(not(unix))]
-impl Drop for WriterLock {
-    fn drop(&mut self) {
-        // No-op stub on non-Unix.
     }
 }
 
 /// Compute the lock file path for a given RVF file.
-///
-/// Path is unchanged from the prior implementation (`<rvf>.lock`). Existing
-/// stale lock files on disk left over from the old PID-file format are
-/// harmless — when the new code calls `open(lock_path, O_CREAT|O_RDWR)` it
-/// reuses the existing file (or creates one if absent). The first peer to
-/// `flock(LOCK_EX)` on it wins; the file's binary content is irrelevant to
-/// the new code.
 pub(crate) fn lock_path_for(rvf_path: &Path) -> PathBuf {
     let mut p = rvf_path.as_os_str().to_os_string();
     p.push(".lock");
     PathBuf::from(p)
+}
+
+/// Try to break a stale lock. Returns `true` if the lock was broken.
+fn try_break_stale_lock(lock_path: &Path) -> io::Result<bool> {
+    let content = match fs::read(lock_path) {
+        Ok(c) => c,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(true),
+        Err(e) => return Err(e),
+    };
+
+    if content.len() < LOCK_FILE_SIZE {
+        // Invalid lock file — delete it.
+        let _ = fs::remove_file(lock_path);
+        return Ok(true);
+    }
+
+    // Validate magic.
+    let magic = u32::from_le_bytes([content[0], content[1], content[2], content[3]]);
+    if magic != LOCK_MAGIC {
+        let _ = fs::remove_file(lock_path);
+        return Ok(true);
+    }
+
+    // Read PID and timestamp.
+    let lock_pid = u32::from_le_bytes([content[4], content[5], content[6], content[7]]);
+    let lock_timestamp = u64::from_le_bytes([
+        content[0x48],
+        content[0x49],
+        content[0x4A],
+        content[0x4B],
+        content[0x4C],
+        content[0x4D],
+        content[0x4E],
+        content[0x4F],
+    ]);
+
+    let current_time = now_ns();
+    let age = current_time.saturating_sub(lock_timestamp);
+
+    // Read hostname.
+    let lock_hostname = read_hostname_from_lock(&content[0x08..0x48]);
+    let current_hostname = get_hostname();
+    let same_host = lock_hostname == current_hostname;
+
+    // Check if PID is alive (same host only).
+    let pid_alive = if same_host {
+        is_pid_alive(lock_pid)
+    } else {
+        // Cannot check remote PID; rely on age only.
+        true
+    };
+
+    // Stale conditions:
+    // - PID is dead AND age > threshold (same host)
+    // - Age > extended threshold (cross-host)
+    let threshold = if same_host {
+        STALE_AGE_NS
+    } else {
+        300_000_000_000
+    };
+
+    if !pid_alive && age > threshold {
+        let _ = fs::remove_file(lock_path);
+        return Ok(true);
+    }
+
+    if !same_host && age > threshold {
+        let _ = fs::remove_file(lock_path);
+        return Ok(true);
+    }
+
+    Ok(false)
+}
+
+fn build_lock_content(
+    pid: u32,
+    hostname: &str,
+    timestamp_ns: u64,
+    writer_id: &[u8; 16],
+) -> Vec<u8> {
+    let mut buf = vec![0u8; LOCK_FILE_SIZE];
+
+    // Magic (0x00).
+    buf[0..4].copy_from_slice(&LOCK_MAGIC.to_le_bytes());
+    // PID (0x04).
+    buf[4..8].copy_from_slice(&pid.to_le_bytes());
+    // Hostname (0x08, max 64 bytes, null-terminated).
+    let host_bytes = hostname.as_bytes();
+    let copy_len = host_bytes.len().min(62); // Reserve byte for null terminator
+    buf[0x08..0x08 + copy_len].copy_from_slice(&host_bytes[..copy_len]);
+    buf[0x08 + copy_len] = 0; // Explicit null terminator
+                              // Timestamp (0x48).
+    buf[0x48..0x50].copy_from_slice(&timestamp_ns.to_le_bytes());
+    // Writer ID (0x50).
+    buf[0x50..0x60].copy_from_slice(writer_id);
+    // Lock version (0x60).
+    buf[0x60..0x64].copy_from_slice(&LOCK_VERSION.to_le_bytes());
+    // CRC32 (0x64) — simplified: we use a basic checksum.
+    let crc = simple_crc32(&buf[0..0x64]);
+    buf[0x64..0x68].copy_from_slice(&crc.to_le_bytes());
+
+    buf
+}
+
+fn atomic_create_file(path: &Path, content: &[u8]) -> io::Result<()> {
+    // Use O_CREAT | O_EXCL semantics via OpenOptions.
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)?;
+    file.write_all(content)?;
+    file.sync_all()?;
+    Ok(())
+}
+
+fn read_hostname_from_lock(buf: &[u8]) -> String {
+    let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
+    String::from_utf8_lossy(&buf[..end]).into_owned()
+}
+
+fn get_hostname() -> String {
+    std::env::var("HOSTNAME").unwrap_or_else(|_| {
+        fs::read_to_string("/etc/hostname")
+            .unwrap_or_else(|_| "unknown".into())
+            .trim()
+            .to_string()
+    })
+}
+
+fn now_ns() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0)
+}
+
+fn random_uuid() -> [u8; 16] {
+    // Simple random UUID generation using /dev/urandom or time-based fallback.
+    let mut buf = [0u8; 16];
+    if let Ok(mut f) = fs::File::open("/dev/urandom") {
+        let _ = f.read_exact(&mut buf);
+    } else {
+        // Fallback: use timestamp + PID.
+        let ts = now_ns();
+        buf[0..8].copy_from_slice(&ts.to_le_bytes());
+        buf[8..12].copy_from_slice(&std::process::id().to_le_bytes());
+    }
+    buf
+}
+
+fn is_pid_alive(pid: u32) -> bool {
+    // On Unix, kill(pid, 0) checks process existence without sending a signal.
+    // A return of 0 means the process exists and we have permission to signal it.
+    // EPERM (errno = 1) means the process exists but belongs to a different user
+    // -- still alive. Any other error (ESRCH = no such process) means dead.
+    #[cfg(unix)]
+    {
+        let ret = libc_kill(pid as i32, 0);
+        if ret == 0 {
+            return true;
+        }
+        // Check errno for EPERM -- process exists but we lack permission
+        let err = unsafe { *libc_errno() };
+        err == EPERM
+    }
+    #[cfg(not(unix))]
+    {
+        // On non-Unix platforms, we cannot determine PID liveness.
+        // Conservatively assume alive to avoid breaking stale locks
+        // that might still be held. The age-based fallback in
+        // try_break_stale_lock will handle truly stale locks.
+        let _ = pid;
+        true
+    }
+}
+
+#[cfg(unix)]
+extern "C" {
+    fn kill(pid: i32, sig: i32) -> i32;
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+extern "C" {
+    fn __errno_location() -> *mut i32;
+}
+
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "freebsd"))]
+extern "C" {
+    fn __error() -> *mut i32;
+}
+
+/// Permission denied errno -- process exists but belongs to another user.
+#[cfg(unix)]
+const EPERM: i32 = 1;
+
+#[cfg(unix)]
+fn libc_kill(pid: i32, sig: i32) -> i32 {
+    unsafe { kill(pid, sig) }
+}
+
+/// Get a pointer to the thread-local errno value.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn libc_errno() -> *mut i32 {
+    unsafe { __errno_location() }
+}
+
+/// Get a pointer to the thread-local errno value (macOS/BSD).
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "freebsd"))]
+fn libc_errno() -> *mut i32 {
+    unsafe { __error() }
+}
+
+/// Simple CRC32 (not CRC32C) for lock file checksumming.
+fn simple_crc32(data: &[u8]) -> u32 {
+    let mut crc: u32 = 0xFFFFFFFF;
+    for &byte in data {
+        crc ^= byte as u32;
+        for _ in 0..8 {
+            if crc & 1 != 0 {
+                crc = (crc >> 1) ^ 0xEDB88320;
+            } else {
+                crc >>= 1;
+            }
+        }
+    }
+    !crc
 }
 
 #[cfg(test)]
@@ -271,22 +361,47 @@ mod tests {
     fn acquire_and_release() {
         let dir = TempDir::new().unwrap();
         let rvf_path = dir.path().join("test.rvf");
-        std::fs::write(&rvf_path, b"").unwrap();
+        fs::write(&rvf_path, b"").unwrap();
 
         let lock = WriterLock::acquire(&rvf_path).unwrap();
         assert!(lock.is_valid());
 
+        // Second acquisition should fail.
+        let result = WriterLock::acquire(&rvf_path);
+        assert!(result.is_err());
+
         lock.release().unwrap();
 
-        // Re-acquisition after explicit release succeeds.
+        // Now acquisition should succeed again.
         let lock2 = WriterLock::acquire(&rvf_path).unwrap();
         assert!(lock2.is_valid());
     }
 
-    // Note: a "second-acquisition-blocks" test cannot run within a single
-    // process because Linux/macOS flock is not inherited by the same fd —
-    // recursive flock calls from the same process succeed instead of
-    // blocking. Cross-process behavior (the load-bearing case) is exercised
-    // by `scripts/diag-rvf-interproc-race.mjs --trials 40` in the
-    // ruflo-patch repo.
+    #[test]
+    fn stale_lock_detection() {
+        let dir = TempDir::new().unwrap();
+        let rvf_path = dir.path().join("test2.rvf");
+        fs::write(&rvf_path, b"").unwrap();
+        let lock_path = lock_path_for(&rvf_path);
+
+        // Write a lock with PID 999999999 (almost certainly dead) and old timestamp.
+        let fake_pid = 999999999u32;
+        let old_ts = now_ns().saturating_sub(60_000_000_000); // 60s ago
+        let fake_id = [0xABu8; 16];
+        let content = build_lock_content(fake_pid, &get_hostname(), old_ts, &fake_id);
+        fs::write(&lock_path, &content).unwrap();
+
+        // Should be able to acquire despite existing lock (stale).
+        let lock = WriterLock::acquire(&rvf_path).unwrap();
+        assert!(lock.is_valid());
+    }
+
+    #[test]
+    fn simple_crc32_works() {
+        let data = b"hello";
+        let crc = simple_crc32(data);
+        assert_ne!(crc, 0);
+        // Same input produces same output.
+        assert_eq!(crc, simple_crc32(data));
+    }
 }
