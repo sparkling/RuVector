@@ -1,10 +1,16 @@
 {
   "name": "@ruvector/ruvllm-linux-x64-gnu",
-  "version": "2.0.0",
-  "os": ["linux"],
-  "cpu": ["x64"],
+  "version": "2.0.0-patch.1",
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
   "main": "ruvllm.linux-x64-gnu.node",
-  "files": ["ruvllm.linux-x64-gnu.node"],
+  "files": [
+    "ruvllm.linux-x64-gnu.node"
+  ],
   "description": "RuvLLM native SIMD acceleration - linux-x64-gnu platform",
   "keywords": [
     "ruvllm",
@@ -28,5 +34,7 @@
     "registry": "https://registry.npmjs.org/",
     "access": "public"
   },
-  "libc": ["glibc"]
+  "libc": [
+    "glibc"
+  ]
 }
