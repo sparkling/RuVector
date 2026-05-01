@@ -77,14 +77,44 @@ impl RvfStore {
             return Err(err(ErrorCode::InvalidManifest));
         }
 
+        // ADR-0095 amendment (2026-05-01, t3-2 silent-loss fix, swarm 2):
+        // take the flock BEFORE attempting `create_new`. The previous
+        // ordering had two cold-start peers race `OpenOptions::create_new`
+        // unsynchronised; the loser got EEXIST mapped to `FsyncFailed`
+        // (misleading), which the JS-side caller treated as fatal. The
+        // resulting silent-loss / loud-fail mix produced the residual 10%
+        // failure rate at low N in `diag-rvf-interproc-race.mjs`.
+        // Empirically confirmed by the instrumented diag's writer-3 stderr
+        // showing FsyncFailed at `attempts=1, elapsed=0ms` while writer-1
+        // wrote `.meta` cleanly — exactly the race shape predicted by the
+        // swarm but not previously closed.
+        //
+        // With the flock acquired first, only one process is inside this
+        // critical section at a time. The post-flock `path.exists()` check
+        // resolves the "create or open?" ambiguity atomically: if the file
+        // already exists at this point, a peer raced the lock and won;
+        // we return `LockHeld` (transient — caller retries as `open()`).
+        // The kernel flock guarantees FIFO ordering across processes, so
+        // every cold-start peer eventually gets to either create the file
+        // or open the file the previous peer just created.
+        let writer_lock = WriterLock::acquire(path).map_err(|_| err(ErrorCode::LockHeld))?;
+
+        // Now that we hold the flock, the create-vs-already-exists check
+        // is race-free. If the file appeared between the flock release of
+        // a prior peer and our acquire, fail with `LockHeld` so the caller
+        // can retry as `open()` (which goes through this same flock queue).
+        if path.exists() {
+            // Drop the lock we just took so the open path can re-acquire.
+            drop(writer_lock);
+            return Err(err(ErrorCode::LockHeld));
+        }
+
         let file = OpenOptions::new()
             .read(true)
             .write(true)
             .create_new(true)
             .open(path)
             .map_err(|_| err(ErrorCode::FsyncFailed))?;
-
-        let writer_lock = WriterLock::acquire(path).map_err(|_| err(ErrorCode::LockHeld))?;
 
         // Generate a random file_id from path hash + timestamp
         let file_id = generate_file_id(path);
