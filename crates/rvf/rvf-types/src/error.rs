@@ -62,6 +62,12 @@ pub enum ErrorCode {
     SegmentTooLarge = 0x0304,
     /// File opened in read-only mode.
     ReadOnly = 0x0305,
+    /// `RvfStore::create` called on a path where a fully-initialized store
+    /// already exists. The caller should switch to `RvfStore::open` (or use
+    /// `RvfStore::open_or_create` to do both atomically under one flock).
+    /// Distinct from `LockHeld` (which means another writer is currently
+    /// holding the writer lock — wait + retry).
+    AlreadyExists = 0x0306,
 
     // ---- Category 0x04: Tile Errors (WASM Microkernel) ----
     /// WASM trap (OOB, unreachable, stack overflow).
@@ -207,6 +213,7 @@ impl TryFrom<u16> for ErrorCode {
             0x0303 => Ok(Self::FsyncFailed),
             0x0304 => Ok(Self::SegmentTooLarge),
             0x0305 => Ok(Self::ReadOnly),
+            0x0306 => Ok(Self::AlreadyExists),
 
             0x0400 => Ok(Self::TileTrap),
             0x0401 => Ok(Self::TileOom),
@@ -330,6 +337,7 @@ mod tests {
             (0x0303, ErrorCode::FsyncFailed),
             (0x0304, ErrorCode::SegmentTooLarge),
             (0x0305, ErrorCode::ReadOnly),
+            (0x0306, ErrorCode::AlreadyExists),
             (0x0400, ErrorCode::TileTrap),
             (0x0401, ErrorCode::TileOom),
             (0x0402, ErrorCode::TileTimeout),

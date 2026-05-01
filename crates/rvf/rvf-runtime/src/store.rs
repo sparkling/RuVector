@@ -104,12 +104,14 @@ impl RvfStore {
 
         // Now that we hold the flock, the create-vs-already-exists check
         // is race-free. If the file appeared between the flock release of
-        // a prior peer and our acquire, fail with `LockHeld` so the caller
-        // can retry as `open()` (which goes through this same flock queue).
+        // a prior peer and our acquire, fail with `AlreadyExists`.
+        // Distinct from `LockHeld` (transient — wait + retry); callers
+        // that want to "open if exists, create otherwise" should peek
+        // existence and dispatch between `open()` and `create()`.
         if path.exists() {
             // Drop the lock we just took so the open path can re-acquire.
             drop(writer_lock);
-            return Err(err(ErrorCode::LockHeld));
+            return Err(err(ErrorCode::AlreadyExists));
         }
 
         let file = OpenOptions::new()
