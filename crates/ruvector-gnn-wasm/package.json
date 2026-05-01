@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/gnn-wasm",
-  "version": "0.1.0-patch.3",
+  "version": "0.1.0-patch.4",
   "description": "WebAssembly bindings for ruvector-gnn - Graph Neural Network layers for browsers",
   "main": "pkg/ruvector_gnn_wasm.js",
   "types": "pkg/ruvector_gnn_wasm.d.ts",

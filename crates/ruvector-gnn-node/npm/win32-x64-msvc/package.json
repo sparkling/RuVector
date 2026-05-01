@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/gnn-win32-x64-msvc",
-  "version": "0.1.25-patch.3",
+  "version": "0.1.25-patch.4",
   "os": [
     "win32"
   ],
