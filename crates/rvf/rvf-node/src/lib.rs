@@ -597,6 +597,23 @@ impl RvfDatabase {
         })
     }
 
+    /// Atomically open an existing RVF store or create a new one.
+    ///
+    /// Thread-safe entry point for cold-start contention — concurrent
+    /// callers all serialize at the kernel flock and exactly one peer
+    /// creates while the others open. No caller-side retry needed.
+    /// Mirrors `RvfStore::open_or_create` (ADR-0095).
+    #[napi(factory)]
+    pub fn open_or_create(path: String, options: RvfOptions) -> Result<Self> {
+        let rust_opts = js_options_to_rust(&options)?;
+        let path_buf = PathBuf::from(&path);
+        let store = RvfStore::open_or_create(&path_buf, rust_opts).map_err(map_rvf_err)?;
+        Ok(Self {
+            inner: Mutex::new(Some(store)),
+            path: path_buf,
+        })
+    }
+
     /// Ingest a batch of vectors.
     ///
     /// `vectors` is a flat Float32Array of length `n * dimension`.

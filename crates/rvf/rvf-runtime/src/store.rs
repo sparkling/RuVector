@@ -161,6 +161,43 @@ impl RvfStore {
         Ok(store)
     }
 
+    /// Atomically open an existing store or create a new one at `path`.
+    ///
+    /// Thread-safe entry point for cold-start contention. Concurrent peers
+    /// calling this method serialize at the kernel flock queue: exactly
+    /// one peer performs the create; the others end up on the open path.
+    /// No caller-side retry / dispatch logic needed.
+    ///
+    /// Behaviour:
+    /// 1. Acquire `flock(LOCK_EX)` on the `.lock` sibling.
+    /// 2. Under the flock, check `path.exists()`:
+    ///    - If yes: drop our flock, dispatch to `Self::open(path)` (which
+    ///      reacquires the same kernel flock; the per-process refcount in
+    ///      `locking.rs` makes this O(1) — no kernel re-queue).
+    ///    - If no: drop our flock, dispatch to `Self::create(path, options)`.
+    ///
+    /// Use this when the caller doesn't care whether the store exists yet —
+    /// only that they end up with a working `RvfStore` handle. For strict
+    /// "must not exist" or "must exist" semantics, use `create` / `open`
+    /// directly.
+    ///
+    /// ADR-0095 (2026-05-01, swarm-2 final fix).
+    pub fn open_or_create(path: &Path, options: RvfOptions) -> Result<Self, RvfError> {
+        if options.dimension == 0 {
+            return Err(err(ErrorCode::InvalidManifest));
+        }
+
+        let writer_lock = WriterLock::acquire(path).map_err(|_| err(ErrorCode::LockHeld))?;
+        let exists = path.exists();
+        drop(writer_lock);
+
+        if exists {
+            Self::open(path)
+        } else {
+            Self::create(path, options)
+        }
+    }
+
     /// Open an existing RVF store for read-write access.
     pub fn open(path: &Path) -> Result<Self, RvfError> {
         if !path.exists() {
