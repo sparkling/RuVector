@@ -10857,6 +10857,7 @@ dependencies = [
 name = "rvf-runtime"
 version = "0.2.0"
 dependencies = [
+ "libc",
  "rvf-types",
 ]
 

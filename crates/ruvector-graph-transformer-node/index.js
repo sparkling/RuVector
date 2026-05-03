@@ -224,32 +224,17 @@ switch (platform) {
         }
         break
       case 'arm':
-        if (isMusl()) {
-          localFileExisted = existsSync(
-            join(__dirname, 'ruvector-graph-transformer.linux-arm-musleabihf.node')
-          )
-          try {
-            if (localFileExisted) {
-              nativeBinding = require('./ruvector-graph-transformer.linux-arm-musleabihf.node')
-            } else {
-              nativeBinding = require('@ruvector/graph-transformer-linux-arm-musleabihf')
-            }
-          } catch (e) {
-            loadError = e
+        localFileExisted = existsSync(
+          join(__dirname, 'ruvector-graph-transformer.linux-arm-gnueabihf.node')
+        )
+        try {
+          if (localFileExisted) {
+            nativeBinding = require('./ruvector-graph-transformer.linux-arm-gnueabihf.node')
+          } else {
+            nativeBinding = require('@ruvector/graph-transformer-linux-arm-gnueabihf')
           }
-        } else {
-          localFileExisted = existsSync(
-            join(__dirname, 'ruvector-graph-transformer.linux-arm-gnueabihf.node')
-          )
-          try {
-            if (localFileExisted) {
-              nativeBinding = require('./ruvector-graph-transformer.linux-arm-gnueabihf.node')
-            } else {
-              nativeBinding = require('@ruvector/graph-transformer-linux-arm-gnueabihf')
-            }
-          } catch (e) {
-            loadError = e
-          }
+        } catch (e) {
+          loadError = e
         }
         break
       case 'riscv64':
