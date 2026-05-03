@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/spiking-neural",
-  "version": "1.0.1-patch.13",
+  "version": "1.0.1-patch.18",
   "description": "High-performance Spiking Neural Network (SNN) with SIMD optimization - CLI & SDK",
   "main": "src/index.js",
   "bin": {
