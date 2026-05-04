@@ -94,10 +94,11 @@ pub(crate) struct WriterLock {
 impl WriterLock {
     /// Acquire the writer lock for the given RVF file path.
     ///
-    /// **Blocking on Unix.** Waits in the kernel flock queue until any
-    /// peer's lock is released. Returns `Ok(WriterLock)` on success or an
-    /// `io::Error` only on syscall failure (ENFILE, EACCES, etc.) — never on
-    /// contention.
+    /// **Bounded-wait on Unix.** Polls `flock(LOCK_EX|LOCK_NB)` with a
+    /// 100ms sleep between attempts and surfaces `io::ErrorKind::TimedOut`
+    /// after `RVF_LOCK_ACQUIRE_TIMEOUT_MS` (default 30000ms). Returns
+    /// `Ok(WriterLock)` on success or an `io::Error` on syscall failure
+    /// (ENFILE, EACCES, etc.) or on timeout — never hangs indefinitely.
     ///
     /// On non-Unix platforms this is currently a no-op (the previous PID-
     /// based implementation never worked correctly on Windows either, since
@@ -142,15 +143,70 @@ impl WriterLock {
                 return Err(io::Error::last_os_error());
             }
 
-            // Blocking exclusive lock. LOCK_EX serializes every writer
+            // Bounded-wait exclusive lock. LOCK_EX serializes every writer
             // across processes; the process-local short-circuit above
             // handles same-process repeat. Kernel handles fairness and
             // auto-release on process death.
-            let rc = unsafe { libc::flock(fd, libc::LOCK_EX) };
-            if rc != 0 {
+            //
+            // ADR-0095 amendment (2026-05-04, deadlock postmortem fix):
+            // a previous version used straight blocking `flock(LOCK_EX)`.
+            // macOS `flock(2)` is per-OFD, so two `RvfStore` instances
+            // opened in the same process via separate paths through the
+            // factory cache (or a caller bypassing the cache) would each
+            // get a distinct fd and deadlock — the second `LOCK_EX` waits
+            // forever for the first holder, and there is no
+            // `process_local_holders` short-circuit during the racy window
+            // between the first acquirer dropping the holders mutex and
+            // re-acquiring it to insert (see lines 118-126). The race is
+            // narrow but real; a hung flock is silent and indistinguishable
+            // from a wedged peer process.
+            //
+            // We poll `LOCK_EX|LOCK_NB` instead. Non-blocking fails fast
+            // with EWOULDBLOCK on contention; we sleep + retry until the
+            // configured timeout, then surface a loud error per ADR-0082
+            // (no silent fallback / no infinite hang). Cross-process
+            // semantics are preserved: same flock file, same inode, same
+            // kernel queue — `LOCK_EX|LOCK_NB` joins the same FIFO queue
+            // as the previous blocking call, just with a userspace
+            // timeout wrapper.
+            //
+            // Tunable via `RVF_LOCK_ACQUIRE_TIMEOUT_MS` env var. Default
+            // 30000ms (30s): long enough for legitimate cross-process
+            // serialization under realistic N≤8 contention, short enough
+            // that a stuck caller fails before pipeline timeouts hit.
+            let timeout_ms: u64 = std::env::var("RVF_LOCK_ACQUIRE_TIMEOUT_MS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(30_000);
+            let poll_interval = std::time::Duration::from_millis(100);
+            let acquire_start = std::time::Instant::now();
+            loop {
+                let rc = unsafe { libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) };
+                if rc == 0 {
+                    break; // acquired
+                }
                 let err = io::Error::last_os_error();
-                unsafe { libc::close(fd) };
-                return Err(err);
+                // EWOULDBLOCK / EAGAIN is the contention signal; anything
+                // else is a syscall failure (EBADF, ENOLCK, EINTR is
+                // documented but rare on flock with NB) — surface it.
+                let raw = err.raw_os_error().unwrap_or(0);
+                if raw != libc::EWOULDBLOCK && raw != libc::EAGAIN {
+                    unsafe { libc::close(fd) };
+                    return Err(err);
+                }
+                if acquire_start.elapsed().as_millis() as u64 >= timeout_ms {
+                    unsafe { libc::close(fd) };
+                    return Err(io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        format!(
+                            "rvf WriterLock: flock(LOCK_EX) acquisition timed out after {}ms (path={}, timeout={}ms via RVF_LOCK_ACQUIRE_TIMEOUT_MS); peer process or in-process duplicate may be holding the lock",
+                            acquire_start.elapsed().as_millis(),
+                            lock_path.display(),
+                            timeout_ms,
+                        ),
+                    ));
+                }
+                std::thread::sleep(poll_interval);
             }
 
             // Now record the holder so future same-process acquisitions
