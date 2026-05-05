@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/sona",
-  "version": "0.1.6-patch.26",
+  "version": "0.1.6-patch.27",
   "main": "index.js",
   "types": "index.d.ts",
   "napi": {
