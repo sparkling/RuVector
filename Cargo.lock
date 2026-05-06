@@ -10734,6 +10734,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "ruvllm_sparse_attention"
+version = "0.1.0"
+dependencies = [
+ "criterion 0.5.1",
+ "rand 0.8.5",
+]
+
+[[package]]
 name = "rvagent-a2a"
 version = "0.1.0"
 dependencies = [
