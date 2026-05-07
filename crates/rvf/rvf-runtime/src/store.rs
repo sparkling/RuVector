@@ -34,6 +34,56 @@ fn err(code: ErrorCode) -> RvfError {
     RvfError::Code(code)
 }
 
+// ─── ADR-0095 d12 typed-retry: cold-start `RvfCorruptError` extension ───
+//
+// Maximum number of `RvfStore::open` attempts before a cold-start-shape
+// boot failure is treated as genuine corruption and returned loud.
+//
+// The budget of 8 matches the empirical baseline from the JS-side
+// `initWithRetry` in `tests/unit/adr0154-cross-process-concurrent.test.mjs`
+// — pushing the loop down into Rust lets the typed-retry cover error
+// shapes (`ManifestNotFound`, `InvalidManifest`, `InvalidChecksum`) that
+// are not `LockHeld` and therefore previously bypassed the JS retry.
+const MAX_COLDSTART_RETRIES: u32 = 8;
+
+/// Base backoff for retry attempts (ms). Doubles each attempt, capped at
+/// `1 << 4` to keep the total worst-case wall-time bounded
+/// (5+10+20+40+80+80+80+80 = 395 ms across 8 attempts).
+const COLDSTART_BACKOFF_BASE_MS: u64 = 5;
+
+/// Discriminator for cold-start race vs. genuine corruption.
+///
+/// A cold-start race surfaces as one of three error shapes from
+/// `RvfStore::boot()`:
+///
+///   * `ManifestNotFound` — file shorter than `SEGMENT_HEADER_SIZE` (a
+///     peer post-`create_new` but pre-write); `find_latest_manifest`
+///     returns `Ok(None)` which `boot()` maps to `ManifestNotFound`.
+///   * `InvalidManifest` — manifest header found but payload-length parse
+///     failed (peer mid-`write_manifest_seg_with_identity`).
+///   * `InvalidChecksum` — segment payload read failed during
+///     `read_segment_payload` (peer mid-segment-write).
+///
+/// These three codes are exactly the ones a freshly-creating peer can
+/// transiently produce on observers. Any other error
+/// (`LockHeld`, `FsyncFailed`, `BadMagic`, `SizeMismatch`, security or
+/// quality errors) is either non-transient or already typed-retryable
+/// elsewhere and therefore not eligible for cold-start retry here —
+/// passes through to the caller unchanged.
+///
+/// Genuine corruption is distinguished by **persistence**: a file that
+/// produces these codes after `MAX_COLDSTART_RETRIES` flock-FIFO retries
+/// is no longer "racing the writer", it is corrupt. The retry loop in
+/// `RvfStore::open` enforces that boundary.
+fn is_coldstart_race_shape(e: &RvfError) -> bool {
+    matches!(
+        e,
+        RvfError::Code(ErrorCode::ManifestNotFound)
+            | RvfError::Code(ErrorCode::InvalidManifest)
+            | RvfError::Code(ErrorCode::InvalidChecksum)
+    )
+}
+
 /// Witness type discriminators matching rvf-crypto's WitnessType.
 /// Kept here to avoid a hard dependency on rvf-crypto in the runtime.
 mod witness_types {
@@ -161,11 +211,83 @@ impl RvfStore {
     }
 
     /// Open an existing RVF store for read-write access.
+    ///
+    /// ADR-0095 d12 typed-retry extension (cold-start `RvfCorruptError` shape):
+    /// when a peer process is mid-creation (file exists post-`create_new` but
+    /// pre-`write_manifest`+`sync_all`), our flock-FIFO turn can land on a
+    /// partially-written file. `boot()` then surfaces one of the cold-start
+    /// race shapes (`ManifestNotFound`, `InvalidManifest`, `InvalidChecksum`)
+    /// which is indistinguishable in error code from genuine corruption.
+    ///
+    /// Discriminator: cold-start race vs. genuine corruption is decided by
+    /// **convergence under retry**. We drop the flock+fd, sleep with a short
+    /// exponential backoff, and re-acquire (FIFO-blocking, so we wait for any
+    /// in-flight peer's `write_manifest`+`sync_all` to complete). If the same
+    /// boot-time error recurs across `MAX_COLDSTART_RETRIES` attempts, the
+    /// file is treated as genuinely corrupt and the original error is
+    /// returned loud — matching `feedback-no-fallbacks` / ADR-0082.
+    ///
+    /// The retry budget (8) matches the empirical budget already used by the
+    /// JS-side `initWithRetry` in
+    /// `tests/unit/adr0154-cross-process-concurrent.test.mjs:70`. Pushing the
+    /// loop into Rust closes the gap where a peer reads the file *during*
+    /// the window between `create_new` and `write_manifest`+`sync_all`,
+    /// surfaces a non-`LockHeld` error code, and the JS-side wrapper treats
+    /// it as fatal before the retry can re-engage.
     pub fn open(path: &Path) -> Result<Self, RvfError> {
         if !path.exists() {
             return Err(err(ErrorCode::ManifestNotFound));
         }
 
+        let mut last_err: Option<RvfError> = None;
+        for attempt in 0..MAX_COLDSTART_RETRIES {
+            // Each attempt acquires its own flock + fd. Re-existence-check
+            // because between attempts a peer could (in principle) unlink
+            // and recreate, although under the unified ADR-0154 path no
+            // production code path does this — we keep the check defensive.
+            if !path.exists() {
+                return Err(err(ErrorCode::ManifestNotFound));
+            }
+
+            match Self::try_open_once(path) {
+                Ok(store) => return Ok(store),
+                Err(e) if is_coldstart_race_shape(&e)
+                    && attempt + 1 < MAX_COLDSTART_RETRIES =>
+                {
+                    // Cold-start race shape with retries remaining: backoff
+                    // and re-attempt. The backoff lets a peer's
+                    // `sync_all`-after-manifest land before our next read,
+                    // but flock FIFO already gives us most of that
+                    // ordering — the sleep is a small additional cushion
+                    // for filesystems where `sync_all` durability lags
+                    // page-cache visibility (e.g. macOS APFS in some
+                    // configurations).
+                    last_err = Some(e);
+                    let backoff_ms = COLDSTART_BACKOFF_BASE_MS * (1u64 << attempt.min(4));
+                    std::thread::sleep(std::time::Duration::from_millis(backoff_ms));
+                    continue;
+                }
+                Err(e) => {
+                    // Either (a) a non-cold-start error (e.g. lock plumbing
+                    // failure, out-of-memory) — pass through immediately,
+                    // or (b) cold-start shape but retry budget exhausted —
+                    // treat as genuine corruption and fail loud per
+                    // ADR-0082 / feedback-no-fallbacks.
+                    return Err(e);
+                }
+            }
+        }
+
+        // Unreachable: the loop body either returns Ok or returns Err on
+        // the final iteration. Keep a defensive fallback in case the
+        // control-flow invariant changes.
+        Err(last_err.unwrap_or_else(|| err(ErrorCode::InvalidManifest)))
+    }
+
+    /// Single-attempt body of `open`: acquire flock, open fd, run boot.
+    /// Extracted so the typed-retry layer in `open` can re-enter cleanly
+    /// (each attempt drops the prior flock + fd via `Drop`).
+    fn try_open_once(path: &Path) -> Result<Self, RvfError> {
         let writer_lock = WriterLock::acquire(path).map_err(|_| err(ErrorCode::LockHeld))?;
 
         let file = OpenOptions::new()
@@ -2932,5 +3054,150 @@ mod tests {
         assert_ne!(store.last_witness_hash(), &[0u8; 32]);
 
         store.close().unwrap();
+    }
+
+    // ─── ADR-0095 d12 cold-start `RvfCorruptError` typed-retry coverage ───
+    //
+    // These tests exercise the discriminator `is_coldstart_race_shape` and
+    // the retry loop wired into `RvfStore::open`. The race itself is hard
+    // to schedule deterministically inside a single-threaded test, so we
+    // simulate the two halves separately:
+    //
+    //   * `coldstart_retry_recovers_from_partial_file` — write the
+    //     truncated-prefix shape a peer would expose mid-`create_new`,
+    //     then have a background thread complete the file with a real
+    //     manifest. `RvfStore::open` should retry past the corrupt-shape
+    //     boot failure and succeed once the file converges.
+    //   * `coldstart_retry_exhausts_on_genuine_corruption` — write a
+    //     file that never converges (header-only, no payload). The retry
+    //     loop must exhaust the budget and surface the original
+    //     `Invalid*` error loud, NOT a transient code.
+
+    #[test]
+    fn coldstart_race_shape_classifier_only_matches_three_codes() {
+        // The discriminator must accept the three boot-time race codes
+        // and reject everything else. Drift in this set silently widens
+        // or narrows the retry policy, so pin it explicitly.
+        assert!(is_coldstart_race_shape(&err(ErrorCode::ManifestNotFound)));
+        assert!(is_coldstart_race_shape(&err(ErrorCode::InvalidManifest)));
+        assert!(is_coldstart_race_shape(&err(ErrorCode::InvalidChecksum)));
+
+        // Negative cases — these MUST NOT be retried (either non-transient,
+        // or already typed-retryable through `LockHeld`).
+        assert!(!is_coldstart_race_shape(&err(ErrorCode::LockHeld)));
+        assert!(!is_coldstart_race_shape(&err(ErrorCode::FsyncFailed)));
+        assert!(!is_coldstart_race_shape(&err(ErrorCode::ReadOnly)));
+        assert!(!is_coldstart_race_shape(&err(ErrorCode::DimensionMismatch)));
+        assert!(!is_coldstart_race_shape(&RvfError::BadMagic {
+            expected: 0x52564653,
+            got: 0,
+        }));
+    }
+
+    #[test]
+    fn coldstart_retry_recovers_from_partial_file() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("coldstart_recover.rvf");
+
+        // Stage 1: lay down a truncated-prefix file so the first
+        // `RvfStore::open` attempt sees the cold-start race shape.
+        // 8 bytes of zero is shorter than `SEGMENT_HEADER_SIZE` (32)
+        // → `find_latest_manifest` returns `Ok(None)` → boot() maps
+        // to `ManifestNotFound`, which is_coldstart_race_shape accepts.
+        std::fs::write(&path, vec![0u8; 8]).unwrap();
+
+        // Stage 2: build a valid RVF byte stream OUT-OF-BAND so we can
+        // splice it onto disk without going through `RvfStore::create`
+        // (which would race the opener for the in-process flock
+        // refcount and confuse the simulation — the in-process
+        // `process_local_holders` short-circuit means same-process
+        // peers don't actually serialise via the kernel flock; only
+        // cross-process peers do, and we can't fork inside `cargo
+        // test`). Use a sibling path to materialise the bytes, then
+        // copy the bytes over the truncated file.
+        let staging = dir.path().join("staging.rvf");
+        let opts = RvfOptions {
+            dimension: 4,
+            metric: DistanceMetric::L2,
+            ..Default::default()
+        };
+        let staging_store = RvfStore::create(&staging, opts).unwrap();
+        drop(staging_store); // Release the staging flock + close fd.
+        let valid_bytes = std::fs::read(&staging).unwrap();
+
+        // Stage 3: in a background thread, after a delay long enough
+        // that attempt 1 of the opener is guaranteed to see the
+        // partial-file shape, overwrite the truncated file with the
+        // valid bytes. `std::fs::write` is atomic at the
+        // descriptor-truncate level on POSIX — the visible state
+        // transitions from "8-byte truncated" to "valid full file"
+        // without an intermediate "0-byte" window the opener could
+        // catch.
+        let path_clone = path.clone();
+        let triggered = Arc::new(AtomicBool::new(false));
+        let triggered_clone = triggered.clone();
+        let writer = std::thread::spawn(move || {
+            // Sleep long enough that the opener has definitely retried
+            // at least once (first backoff = 5ms; we wait 30ms to be
+            // generous on slow CI).
+            std::thread::sleep(std::time::Duration::from_millis(30));
+            std::fs::write(&path_clone, &valid_bytes).unwrap();
+            triggered_clone.store(true, Ordering::SeqCst);
+        });
+
+        // Stage 3: `RvfStore::open` must retry past the partial-file
+        // boot failure and succeed once the writer thread converges.
+        let opened = RvfStore::open(&path);
+        writer.join().unwrap();
+        assert!(triggered.load(Ordering::SeqCst), "writer thread did not run");
+        assert!(
+            opened.is_ok(),
+            "open() should have retried past cold-start race, got: {:?}",
+            opened.err()
+        );
+    }
+
+    #[test]
+    fn coldstart_retry_exhausts_on_genuine_corruption() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("genuine_corrupt.rvf");
+
+        // Persistent partial-file shape: 8 bytes of zero, never
+        // converges. The retry loop must exhaust `MAX_COLDSTART_RETRIES`
+        // and surface the original error code loud. This is the
+        // discriminator that distinguishes cold-start race from genuine
+        // corruption: persistence under retry.
+        std::fs::write(&path, vec![0u8; 8]).unwrap();
+
+        let start = std::time::Instant::now();
+        let result = RvfStore::open(&path);
+        let elapsed = start.elapsed();
+
+        // Must surface a cold-start-shape error code (the original boot
+        // failure), NOT a non-transient remap. This ensures callers
+        // that audit error codes still see the truthful root cause.
+        // (`RvfStore` does not implement `Debug`, so we destructure
+        // manually instead of using `unwrap_err`.)
+        match result {
+            Ok(_) => panic!(
+                "genuinely corrupt file must fail loud after retry budget"
+            ),
+            Err(e) => assert!(
+                is_coldstart_race_shape(&e),
+                "exhausted retries should surface original error shape, got: {e:?}"
+            ),
+        }
+
+        // Sanity: the retry loop actually ran (didn't fast-fail past
+        // the discriminator). With base 5ms backoff and 7 sleeps before
+        // the final attempt, the floor is ~5+10+20+40+80+80+80 = 315ms.
+        // Use a generous lower bound to avoid flake on slow CI.
+        assert!(
+            elapsed.as_millis() >= 100,
+            "expected retry loop to actually iterate, took only {elapsed:?}"
+        );
     }
 }
