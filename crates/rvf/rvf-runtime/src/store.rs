@@ -1578,6 +1578,25 @@ impl RvfStore {
         self.vectors.get(vector_id)
     }
 
+    /// Iterate all `(vector_id, vector, metadata_entries)` tuples in one
+    /// pass.
+    ///
+    /// ADR-0154 G5 (2026-05-07). Callers who want to rebuild full entry
+    /// state at boot (e.g. memory backend's `loadFromNativeSegments`) can
+    /// use this to avoid the O(N) napi-crossing pattern of
+    /// `list_metadata_ids` + `get_metadata_entries(id)` + `get_vector(id)`.
+    /// One mutex acquisition (the napi binding's caller already holds it),
+    /// one iteration. Vectors for deleted IDs are skipped.
+    pub fn iter_metadata_with_vectors(&self) -> impl Iterator<Item = (u64, &[f32], &[MetadataEntry])> {
+        self.metadata_full.iter().filter_map(move |(id, entries)| {
+            if self.deletion_bitmap.is_deleted(*id) {
+                return None;
+            }
+            let vec = self.vectors.get(*id)?;
+            Some((*id, vec, entries.as_slice()))
+        })
+    }
+
     /// Get the file identity (lineage metadata) for this store.
     pub fn file_identity(&self) -> &FileIdentity {
         &self.file_identity

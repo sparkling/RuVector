@@ -158,6 +158,40 @@ pub struct RvfMetadataEntry {
     pub value_bytes: Option<Buffer>,
 }
 
+/// A single (id, vector, metadata) snapshot, returned by the batch reader
+/// `iterAllWithVectors()`.
+///
+/// ADR-0154 G5 (2026-05-07).
+#[napi(object)]
+pub struct RvfEntrySnapshot {
+    /// Vector ID (numId).
+    pub id: i64,
+    /// Vector data, length == store dimension.
+    pub vector: Float32Array,
+    /// Per-vector metadata entries (same shape consumed by ingestBatch).
+    pub metadata: Vec<RvfMetadataEntry>,
+}
+
+fn metadata_entry_to_napi(e: &RustMetadataEntry) -> RvfMetadataEntry {
+    let (value_type, value, value_bytes) = match &e.value {
+        rvf_runtime::options::MetadataValue::U64(v) => ("u64".to_string(), v.to_string(), None),
+        rvf_runtime::options::MetadataValue::I64(v) => ("i64".to_string(), v.to_string(), None),
+        rvf_runtime::options::MetadataValue::F64(v) => ("f64".to_string(), v.to_string(), None),
+        rvf_runtime::options::MetadataValue::String(s) => ("string".to_string(), s.clone(), None),
+        rvf_runtime::options::MetadataValue::Bytes(b) => (
+            "bytes".to_string(),
+            String::new(),
+            Some(Buffer::from(b.as_slice())),
+        ),
+    };
+    RvfMetadataEntry {
+        field_id: e.field_id as u32,
+        value_type,
+        value,
+        value_bytes,
+    }
+}
+
 // ── Conversion helpers ───────────────────────────────────────────────
 
 fn parse_metric(s: &str) -> Result<DistanceMetric> {
@@ -640,6 +674,39 @@ impl RvfDatabase {
             Some(slice) => Ok(Some(Float32Array::new(slice.to_vec()))),
             None => Ok(None),
         }
+    }
+
+    /// Batch reader: return every persisted `(id, vector, metadata)` tuple
+    /// in a single napi crossing.
+    ///
+    /// ADR-0154 G5 (2026-05-07). Replaces the O(N) napi-crossing pattern
+    /// (`listMetadataIds()` + per-id `getMetadataEntries(id)` + per-id
+    /// `getVector(id)`) with a single mutex acquisition + one iteration.
+    /// At 10K entries this drops 20K mutex-serialised crossings to 1.
+    ///
+    /// Returned shape per entry:
+    ///   { id: number, vector: Float32Array, metadata: RvfMetadataEntry[] }
+    ///
+    /// Iteration order is unspecified. Deleted IDs are skipped.
+    #[napi]
+    pub fn iter_all_with_vectors(&self) -> Result<Vec<RvfEntrySnapshot>> {
+        let guard = self
+            .inner
+            .lock()
+            .map_err(|_| napi::Error::from_reason("Lock poisoned"))?;
+        let store = guard
+            .as_ref()
+            .ok_or_else(|| napi::Error::from_reason("Store is closed"))?;
+        let mut out: Vec<RvfEntrySnapshot> = Vec::new();
+        for (id, vec, entries) in store.iter_metadata_with_vectors() {
+            let metadata = entries.iter().map(|e| metadata_entry_to_napi(e)).collect();
+            out.push(RvfEntrySnapshot {
+                id: id as i64,
+                vector: Float32Array::new(vec.to_vec()),
+                metadata,
+            });
+        }
+        Ok(out)
     }
 
     /// Query for the k nearest neighbors of the given vector.
