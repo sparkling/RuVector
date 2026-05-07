@@ -27,6 +27,7 @@ pub mod ffi;
 pub mod filter;
 pub mod locking;
 pub mod membership;
+pub mod meta_payload;
 pub mod options;
 #[cfg(feature = "qr")]
 pub mod qr_encode;

@@ -98,7 +98,10 @@ impl SegmentWriter {
     }
 
     /// Write a META_SEG for vector metadata.
-    #[allow(dead_code)]
+    ///
+    /// `metadata_payload` should be encoded by `crate::meta_payload::encode_meta_payload`
+    /// (ADR-0154 Phase 1c — opaque-record stop-gap format) so `boot()` and
+    /// `compact()` can decode it via `crate::meta_payload::decode_meta_payload`.
     pub(crate) fn write_meta_seg<W: Write + Seek>(
         &mut self,
         writer: &mut W,

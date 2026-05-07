@@ -144,15 +144,18 @@ pub struct RvfCompactionResult {
     pub epoch: u32,
 }
 
-/// A metadata entry for ingest: { fieldId, valueType, value }.
+/// A metadata entry for ingest: { fieldId, valueType, value, valueBytes? }.
 #[napi(object)]
 pub struct RvfMetadataEntry {
     /// Metadata field identifier.
     pub field_id: u32,
-    /// Value type: "u64" | "i64" | "f64" | "string".
+    /// Value type: "u64" | "i64" | "f64" | "string" | "bytes".
     pub value_type: String,
-    /// The value as a string representation (parsed based on value_type).
+    /// The value as a string representation (parsed based on value_type). For "bytes",
+    /// pass `value_bytes` instead and leave this empty.
     pub value: String,
+    /// Optional binary payload, used when `value_type == "bytes"`.
+    pub value_bytes: Option<Buffer>,
 }
 
 // ── Conversion helpers ───────────────────────────────────────────────
@@ -343,6 +346,14 @@ fn parse_metadata_entry(e: &RvfMetadataEntry) -> Result<RustMetadataEntry> {
             .map(RustMetadataValue::F64)
             .map_err(|_| napi::Error::from_reason(format!("Cannot parse '{}' as f64", e.value)))?,
         "string" => RustMetadataValue::String(e.value.clone()),
+        "bytes" => {
+            let buf = e.value_bytes.as_ref().ok_or_else(|| {
+                napi::Error::from_reason(
+                    "metadata value_type 'bytes' requires non-null value_bytes Buffer",
+                )
+            })?;
+            RustMetadataValue::Bytes(buf.to_vec())
+        }
         other => {
             return Err(napi::Error::from_reason(format!(
                 "Unknown metadata value_type '{other}'"
@@ -528,6 +539,85 @@ impl RvfDatabase {
             rejected: result.rejected as i64,
             epoch: result.epoch,
         })
+    }
+
+    /// Get the metadata entries persisted for a single vector ID.
+    ///
+    /// Returns an empty array if the vector has no metadata, or if the vector
+    /// was deleted. The returned entries match the shape consumed by
+    /// `ingestBatch` (same `RvfMetadataEntry` struct) so callers can
+    /// round-trip metadata across process restarts.
+    ///
+    /// ADR-0154 Phase 1g.
+    #[napi]
+    pub fn get_metadata_entries(&self, id: i64) -> Result<Vec<RvfMetadataEntry>> {
+        let guard = self
+            .inner
+            .lock()
+            .map_err(|_| napi::Error::from_reason("Lock poisoned"))?;
+        let store = guard
+            .as_ref()
+            .ok_or_else(|| napi::Error::from_reason("Store is closed"))?;
+
+        let entries = match store.get_metadata(id as u64) {
+            Some(e) => e,
+            None => return Ok(Vec::new()),
+        };
+
+        let mut out: Vec<RvfMetadataEntry> = Vec::with_capacity(entries.len());
+        for e in entries {
+            let (value_type, value, value_bytes) = match &e.value {
+                rvf_runtime::options::MetadataValue::U64(v) => (
+                    "u64".to_string(),
+                    v.to_string(),
+                    None,
+                ),
+                rvf_runtime::options::MetadataValue::I64(v) => (
+                    "i64".to_string(),
+                    v.to_string(),
+                    None,
+                ),
+                rvf_runtime::options::MetadataValue::F64(v) => (
+                    "f64".to_string(),
+                    v.to_string(),
+                    None,
+                ),
+                rvf_runtime::options::MetadataValue::String(s) => (
+                    "string".to_string(),
+                    s.clone(),
+                    None,
+                ),
+                rvf_runtime::options::MetadataValue::Bytes(b) => (
+                    "bytes".to_string(),
+                    String::new(),
+                    Some(Buffer::from(b.as_slice())),
+                ),
+            };
+            out.push(RvfMetadataEntry {
+                field_id: e.field_id as u32,
+                value_type,
+                value,
+                value_bytes,
+            });
+        }
+        Ok(out)
+    }
+
+    /// Iterate all `(vector_id, metadata_entries)` pairs persisted in the store.
+    ///
+    /// ADR-0154 Phase 1g. Iteration order is unspecified.
+    /// Useful for full-store rebuilds (e.g. migration scripts) that need every
+    /// vector's metadata without driving lookups one-at-a-time.
+    #[napi]
+    pub fn list_metadata_ids(&self) -> Result<Vec<i64>> {
+        let guard = self
+            .inner
+            .lock()
+            .map_err(|_| napi::Error::from_reason("Lock poisoned"))?;
+        let store = guard
+            .as_ref()
+            .ok_or_else(|| napi::Error::from_reason("Store is closed"))?;
+        Ok(store.iter_metadata().map(|(id, _)| id as i64).collect())
     }
 
     /// Query for the k nearest neighbors of the given vector.

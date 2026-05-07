@@ -188,7 +188,7 @@ pub struct CompactionResult {
 }
 
 /// A single metadata entry for a vector.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct MetadataEntry {
     /// Metadata field identifier.
     pub field_id: u16,
@@ -197,7 +197,7 @@ pub struct MetadataEntry {
 }
 
 /// Metadata value types matching the spec.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum MetadataValue {
     U64(u64),
     I64(i64),

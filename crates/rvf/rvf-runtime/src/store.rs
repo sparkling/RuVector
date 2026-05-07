@@ -3,7 +3,7 @@
 //! Ties together the write path, read path, indexing, deletion, and
 //! compaction into a single cohesive store.
 
-use std::collections::BinaryHeap;
+use std::collections::{BinaryHeap, HashMap};
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -23,6 +23,7 @@ use crate::deletion::DeletionBitmap;
 use crate::filter::{self, metadata_value_to_filter, FilterExpr, FilterValue, MetadataStore};
 use crate::locking::WriterLock;
 use crate::membership::MembershipFilter;
+use crate::meta_payload;
 use crate::options::*;
 use crate::read_path::{self, VectorData};
 use crate::status::{CompactionState, StoreStatus};
@@ -54,6 +55,11 @@ pub struct RvfStore {
     vectors: VectorData,
     deletion_bitmap: DeletionBitmap,
     metadata: MetadataStore,
+    /// Full per-vector metadata (preserves `MetadataValue::Bytes` losslessly).
+    /// `MetadataStore` lossily downcasts to `FilterValue` for filter evaluation;
+    /// this parallel store is what `get_metadata` reads from and what
+    /// `boot()` reconstructs from META_SEGs (ADR-0154 Phase 1b).
+    metadata_full: HashMap<u64, Vec<MetadataEntry>>,
     epoch: u32,
     segment_dir: Vec<(u64, u64, u64, u8)>,
     read_only: bool,
@@ -138,6 +144,7 @@ impl RvfStore {
             vectors: VectorData::new(options.dimension),
             deletion_bitmap: DeletionBitmap::new(),
             metadata: MetadataStore::new(),
+            metadata_full: HashMap::new(),
             epoch: 0,
             segment_dir: Vec::new(),
             read_only: false,
@@ -188,6 +195,7 @@ impl RvfStore {
             vectors: VectorData::new(0),
             deletion_bitmap: DeletionBitmap::new(),
             metadata: MetadataStore::new(),
+            metadata_full: HashMap::new(),
             epoch: 0,
             segment_dir: Vec::new(),
             read_only: false,
@@ -234,6 +242,7 @@ impl RvfStore {
             vectors: VectorData::new(0),
             deletion_bitmap: DeletionBitmap::new(),
             metadata: MetadataStore::new(),
+            metadata_full: HashMap::new(),
             epoch: 0,
             segment_dir: Vec::new(),
             read_only: true,
@@ -323,18 +332,52 @@ impl RvfStore {
             self.vectors.insert(vec_id, vec_data.to_vec());
         }
 
+        // ADR-0154 Phase 1: persist metadata to disk via META_SEG, in addition
+        // to the legacy in-memory MetadataStore. The legacy store is lossy on
+        // Bytes; the META_SEG is the durable source of truth.
         if let Some(meta_entries) = metadata {
             let entries_per_id = meta_entries.len() / valid_ids.len().max(1);
             if entries_per_id > 0 {
+                // Build the (vid, &[MetadataEntry]) records for META_SEG encoding,
+                // and simultaneously populate both metadata stores.
+                let mut records: Vec<(u64, &[MetadataEntry])> = Vec::with_capacity(valid_ids.len());
                 for (i, &vid) in valid_ids.iter().enumerate() {
                     let start = i * entries_per_id;
                     let end = ((i + 1) * entries_per_id).min(meta_entries.len());
-                    let fields: Vec<(u16, FilterValue)> = meta_entries[start..end]
+                    let slice = &meta_entries[start..end];
+
+                    // Lossy filter store (used by query() filter evaluation).
+                    let fields: Vec<(u16, FilterValue)> = slice
                         .iter()
                         .map(|e| (e.field_id, metadata_value_to_filter(&e.value)))
                         .collect();
                     self.metadata.insert(vid, fields);
+
+                    // Lossless full store (used by get_metadata()).
+                    self.metadata_full.insert(vid, slice.to_vec());
+
+                    records.push((vid, slice));
                 }
+
+                // Write the META_SEG immediately after the VEC_SEG so the two
+                // segments share the same epoch + id range. Uses the same
+                // append-only protocol as VEC_SEG (header + payload + fsync).
+                let payload = meta_payload::encode_meta_payload(&records);
+                let (meta_seg_id, meta_seg_offset) = {
+                    let mut buf_writer = BufWriter::with_capacity(256 * 1024, &self.file);
+                    buf_writer
+                        .seek(SeekFrom::End(0))
+                        .map_err(|_| err(ErrorCode::FsyncFailed))?;
+                    writer
+                        .write_meta_seg(&mut buf_writer, &payload)
+                        .map_err(|_| err(ErrorCode::FsyncFailed))?
+                };
+                self.segment_dir.push((
+                    meta_seg_id,
+                    meta_seg_offset,
+                    payload.len() as u64,
+                    SegmentType::Meta as u8,
+                ));
             }
         }
 
@@ -707,6 +750,9 @@ impl RvfStore {
             self.vectors.remove(id);
         }
         self.metadata.remove_ids(&deleted_ids);
+        for &id in &deleted_ids {
+            self.metadata_full.remove(&id);
+        }
 
         let segments_compacted = deleted_ids.len() as u32;
         let bytes_reclaimed = (deleted_ids.len() as u64) * (self.options.dimension as u64) * 4;
@@ -1500,6 +1546,24 @@ impl RvfStore {
         self.options.dimension
     }
 
+    /// Get the metadata entries for a single vector ID, or `None` if the
+    /// vector was never stored or was deleted.
+    ///
+    /// ADR-0154 Phase 1f. Returns the lossless metadata reconstructed from
+    /// META_SEGs at boot time + appended in-memory by `ingest_batch`.
+    pub fn get_metadata(&self, vector_id: u64) -> Option<&[MetadataEntry]> {
+        self.metadata_full
+            .get(&vector_id)
+            .map(|v| v.as_slice())
+    }
+
+    /// Iterate over all `(vector_id, metadata_entries)` pairs.
+    ///
+    /// ADR-0154 Phase 1f. Iteration order is unspecified (HashMap).
+    pub fn iter_metadata(&self) -> impl Iterator<Item = (u64, &[MetadataEntry])> {
+        self.metadata_full.iter().map(|(id, v)| (*id, v.as_slice()))
+    }
+
     /// Get the file identity (lineage metadata) for this store.
     pub fn file_identity(&self) -> &FileIdentity {
         &self.file_identity
@@ -1668,6 +1732,7 @@ impl RvfStore {
             vectors: VectorData::new(self.options.dimension),
             deletion_bitmap: DeletionBitmap::new(),
             metadata: MetadataStore::new(),
+            metadata_full: HashMap::new(),
             epoch: 0,
             segment_dir: Vec::new(),
             read_only: false,
@@ -1823,6 +1888,48 @@ impl RvfStore {
                 for (vec_id, vec_data) in vec_entries {
                     self.vectors.insert(vec_id, vec_data);
                 }
+            }
+        }
+
+        // ADR-0154 Phase 1e: replay META_SEGs in segment-directory order so
+        // later writes (same vid, new entries) overwrite earlier ones. The
+        // append-only protocol guarantees this: if the same vector is
+        // re-ingested, its newest META_SEG comes after older ones in the
+        // segment_dir. Deleted vectors (in deletion_bitmap) are skipped to
+        // match the legacy in-memory MetadataStore semantics.
+        let meta_seg_entries: Vec<_> = manifest
+            .segment_dir
+            .iter()
+            .filter(|e| e.seg_type == SegmentType::Meta as u8)
+            .collect();
+
+        for entry in meta_seg_entries {
+            let (_header, payload) = {
+                let mut reader = BufReader::new(&self.file);
+                read_path::read_segment_payload(&mut reader, entry.offset)
+                    .map_err(|_| err(ErrorCode::InvalidChecksum))?
+            };
+
+            // Decoder is bound-checked; on malformed payload, log and skip
+            // rather than aborting boot — older segments may use different
+            // formats once we migrate to upstream's spec-08 layout. For now
+            // the only producer is encode_meta_payload above, so this is a
+            // hard error.
+            let records = match meta_payload::decode_meta_payload(&payload) {
+                Ok(r) => r,
+                Err(_) => return Err(err(ErrorCode::InvalidChecksum)),
+            };
+
+            for (vid, entries) in records {
+                if self.deletion_bitmap.is_deleted(vid) {
+                    continue;
+                }
+                let fields: Vec<(u16, FilterValue)> = entries
+                    .iter()
+                    .map(|e| (e.field_id, metadata_value_to_filter(&e.value)))
+                    .collect();
+                self.metadata.insert(vid, fields);
+                self.metadata_full.insert(vid, entries);
             }
         }
 
