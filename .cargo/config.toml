@@ -4,6 +4,14 @@ git-fetch-with-cli = true
 [registries.crates-io]
 protocol = "git"
 
+# ADR-0154 R4: musl cross-compile for Alpine Linux prebuilds.
+# Toolchain provided by `messense/macos-cross-toolchains/x86_64-unknown-linux-musl`.
+# Used by the napi build of `rvf-node` against the `x86_64-unknown-linux-musl`
+# target (see crates/rvf/rvf-node/package.json).
+[target.x86_64-unknown-linux-musl]
+linker = "x86_64-linux-musl-gcc"
+ar = "x86_64-linux-musl-ar"
+
 # `ruvector-filter` carries `#![recursion_limit = "4096"]` (PR #389) to
 # survive trait-resolution overflow when serde_json's `Serializer` blanket
 # impl recurses through the crate's expression types. The deeper resolution
