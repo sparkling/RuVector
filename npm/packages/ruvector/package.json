@@ -1,6 +1,6 @@
 {
   "name": "ruvector",
-  "version": "0.1.2-patch.462",
+  "version": "0.1.2-patch.463",
   "description": "Self-learning vector database for Node.js — hybrid search, Graph RAG, FlashAttention-3, HNSW, 50+ attention mechanisms",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -72,7 +72,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
     "@ruvector/attention": "0.1.4-patch.54",
-    "@ruvector/core": "0.1.31-patch.38",
+    "@ruvector/core": "0.1.31-patch.39",
     "@ruvector/gnn": "0.1.25-patch.50",
     "@ruvector/sona": "0.1.6-patch.28",
     "chalk": "^4.1.2",
@@ -81,7 +81,7 @@
     "ora": "^5.4.1"
   },
   "optionalDependencies": {
-    "@ruvector/rvf": "0.2.0-patch.60"
+    "@ruvector/rvf": "0.2.0-patch.61"
   },
   "devDependencies": {
     "@types/node": "^20.10.5",
