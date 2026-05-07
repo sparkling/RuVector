@@ -1564,6 +1564,20 @@ impl RvfStore {
         self.metadata_full.iter().map(|(id, v)| (*id, v.as_slice()))
     }
 
+    /// Get the vector data for a single vector ID, or `None` if the vector
+    /// was never stored or was deleted.
+    ///
+    /// ADR-0154 follow-up. Lets callers reconstruct the full entry (vector
+    /// plus metadata) without duplicating the vector inside the META_SEG
+    /// entry-blob. The slice is borrowed from the in-memory `VectorData`
+    /// loaded from VEC_SEGs at boot.
+    pub fn get_vector(&self, vector_id: u64) -> Option<&[f32]> {
+        if self.deletion_bitmap.is_deleted(vector_id) {
+            return None;
+        }
+        self.vectors.get(vector_id)
+    }
+
     /// Get the file identity (lineage metadata) for this store.
     pub fn file_identity(&self) -> &FileIdentity {
         &self.file_identity

@@ -620,6 +620,28 @@ impl RvfDatabase {
         Ok(store.iter_metadata().map(|(id, _)| id as i64).collect())
     }
 
+    /// Get the vector for a single ID, or `null` if the vector was never
+    /// stored or was deleted.
+    ///
+    /// ADR-0154 follow-up: lets `loadFromNativeSegments` reconstruct an
+    /// entry's embedding from the VEC_SEG instead of duplicating it inside
+    /// the META_SEG entry-blob. Returns a `Float32Array` of length
+    /// `dimension`.
+    #[napi]
+    pub fn get_vector(&self, id: i64) -> Result<Option<Float32Array>> {
+        let guard = self
+            .inner
+            .lock()
+            .map_err(|_| napi::Error::from_reason("Lock poisoned"))?;
+        let store = guard
+            .as_ref()
+            .ok_or_else(|| napi::Error::from_reason("Store is closed"))?;
+        match store.get_vector(id as u64) {
+            Some(slice) => Ok(Some(Float32Array::new(slice.to_vec()))),
+            None => Ok(None),
+        }
+    }
+
     /// Query for the k nearest neighbors of the given vector.
     ///
     /// `vector` is a Float32Array of length `dimension`.
