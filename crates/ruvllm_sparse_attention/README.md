@@ -25,6 +25,7 @@ runtime dependencies, validated on Raspberry Pi 5 and Pi Zero 2W.
 - [Feature flags](#feature-flags)
 - [How it works](#how-it-works)
 - [FAQ](#faq)
+- [Sparse-Mario example](#sparse-mario--retrieval-generation-demo)
 - [Tutorial](#tutorial)
 - [License](#license)
 
@@ -310,6 +311,82 @@ GGUF dequant implementation.
 **Is there a Python binding?**
 No, and there are no plans to add one. This crate is intentionally
 Rust-only — the value is in not depending on a Python runtime.
+
+## Sparse-Mario — retrieval generation demo
+
+`examples/sparse_mario.rs` shows the attention kernel used as a
+**training-free associative-memory LM**: no autograd, no learned
+weights — just the kernel, deterministic random embeddings, and the
+empirical next-token signal baked into V.
+
+```text
+K[i] = embed(corpus[i]) + 0.5·pos(i)
+V[i] = embed(corpus[i+1])           ← supervision baked into V
+Q[i] = K[i]
+out  = SubquadraticSparseAttention.forward(Q, K, V)        // non-causal
+logits[v] = out[last] · embed(v)
+next      = sample(softmax(logits / T))                    // top-k + rep penalty
+```
+
+Run it:
+
+```bash
+cargo run --release --features parallel --example sparse_mario
+```
+
+The example ships with three hand-authored 50×14 SMB level slices
+(VGLC alphabet) and generates a fourth from a Mario-start seed. The
+sparse kernel runs over a 2.8K-token combined sequence (corpus + prefix);
+the iter-5 sampling pass (`SamplingConfig::quality()`: top-k=5,
+repetition penalty 1.6, window 12) breaks bigram saturation so the
+output contains pipes, cannons, bricks, coins, and question blocks
+instead of one steady-state tile.
+
+A companion bench (`benches/sparse_mario_bench.rs`) compares the three
+attention paths at the workload's exact shape (heads=1, head_dim=64,
+non-causal, window=256, block=64). On a Ryzen 9 9950X:
+
+| seq  | dense    | sparse   | sparse + FastGRNN | sparse vs dense |
+|------|----------|----------|-------------------|-----------------|
+|  256 |  2.4 ms  |  1.7 ms  |  2.2 ms           |  1.4× |
+|  512 |  9.6 ms  |  5.2 ms  |  6.2 ms           |  1.8× |
+| 1024 | 38.4 ms  | 12.2 ms  | 14.2 ms           |  3.1× |
+| 2048 | 154 ms   | 26.2 ms  | 30.3 ms           |  **5.9×** |
+
+Dense scales 4× per doubling (O(N²) confirmed). Sparse scales ~2× per
+doubling — sub-quadratic, as advertised. FastGRNN gate adds a small
+constant cost that dominates at heads=1 / d=64; the gate pays back at
+larger heads or longer sequences (see the iter-5 commit message for
+the rationale on which optimisations applied to this workload and
+which didn't).
+
+```bash
+cargo bench -p ruvllm_sparse_attention --bench sparse_mario_bench \
+  --features parallel \
+  -- --warm-up-time 1 --measurement-time 3 --sample-size 20
+```
+
+### Bonus: masked discrete diffusion
+
+The same example also ships a `MarioDiffuser` — architecturally a real
+diffusion model (D3PM / MaskGIT-inference family): bidirectional context,
+iterative denoising with a cosine schedule, confidence-ordered unmasking.
+The denoiser is the same sparse attention kernel, used as a
+content-addressable memory:
+
+```text
+K[i] = 0.5·(embed(left_neighbor(i)) + embed(right_neighbor(i)))
+V[i] = embed(token_at_i)
+Q[j] = K[j]
+out  = SubquadraticSparseAttention.forward(Q, K, V)
+```
+
+A small "context boot" (a random contiguous corpus slice) gives step 1
+real content to retrieve against — without it, the all-masked initial
+state collapses to a single-token fixed point. Result: a 14×50 grid
+denoised in ~600 ms (16 steps × one bidirectional forward each), versus
+~25 s for the same shape via 700 autoregressive forwards. **40× faster
+end-to-end** at this scale.
 
 ## Tutorial
 
