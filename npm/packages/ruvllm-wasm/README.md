@@ -1,25 +1,22 @@
 # @ruvector/ruvllm-wasm
 
-[![npm version](https://img.shields.io/npm/v/@ruvector/ruvllm-wasm.svg)](https://www.npmjs.com/package/@ruvector/ruvllm-wasm)
-[![npm downloads](https://img.shields.io/npm/dt/@ruvector/ruvllm-wasm.svg)](https://www.npmjs.com/package/@ruvector/ruvllm-wasm)
-[![npm downloads/month](https://img.shields.io/npm/dm/@ruvector/ruvllm-wasm.svg)](https://www.npmjs.com/package/@ruvector/ruvllm-wasm)
-[![License](https://img.shields.io/npm/l/@ruvector/ruvllm-wasm.svg)](https://github.com/ruvnet/ruvector/blob/main/LICENSE)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue.svg)](https://www.typescriptlang.org/)
+[![npm](https://img.shields.io/npm/v/@ruvector/ruvllm-wasm.svg)](https://www.npmjs.com/package/@ruvector/ruvllm-wasm)
+[![License](https://img.shields.io/crates/l/ruvllm-wasm.svg)](https://github.com/ruvnet/ruvector/blob/main/LICENSE)
 
-**Run large language models directly in the browser** using WebAssembly with optional WebGPU acceleration for faster inference.
+Browser-compatible LLM inference runtime with WebAssembly. Semantic routing, adaptive learning, KV cache management, and chat template formatting — directly in the browser, no server required.
 
 ## Features
 
-- **Browser-Native** - No server required, runs entirely client-side
-- **WebGPU Acceleration** - 10-50x faster inference with GPU support
-- **GGUF Models** - Load quantized models for efficient browser inference
-- **Streaming** - Real-time token streaming for responsive UX
-- **IndexedDB Caching** - Cache models locally for instant reload
-- **Privacy-First** - All processing happens on-device
-- **SIMD Support** - Optimized WASM with SIMD instructions
-- **Multi-Threading** - Parallel inference with SharedArrayBuffer
+- **KV Cache Management** — Two-tier cache (FP32 tail + u8 quantized store) for efficient token storage
+- **Memory Pooling** — Arena allocator + buffer pool for minimal allocation overhead
+- **Chat Templates** — Llama3, Mistral, Qwen, ChatML, Phi, Gemma format support
+- **HNSW Semantic Router** — 150x faster pattern matching with bidirectional graph search
+- **MicroLoRA** — Sub-millisecond model adaptation (rank 1-4)
+- **SONA Instant Learning** — EMA quality tracking + adaptive rank adjustment
+- **Web Workers** — Parallel inference with SharedArrayBuffer detection
+- **Full TypeScript** — Complete `.d.ts` type definitions for all exports
 
-## Installation
+## Install
 
 ```bash
 npm install @ruvector/ruvllm-wasm
@@ -27,250 +24,157 @@ npm install @ruvector/ruvllm-wasm
 
 ## Quick Start
 
-```typescript
-import { RuvLLMWasm, checkWebGPU } from '@ruvector/ruvllm-wasm';
+```javascript
+import init, {
+  RuvLLMWasm,
+  ChatTemplateWasm,
+  ChatMessageWasm,
+  HnswRouterWasm,
+  healthCheck
+} from '@ruvector/ruvllm-wasm';
 
-// Check browser capabilities
-const webgpu = await checkWebGPU();
-console.log('WebGPU:', webgpu); // 'available' | 'unavailable' | 'not_supported'
+// Initialize WASM module
+await init();
 
-// Create instance with WebGPU (if available)
-const llm = await RuvLLMWasm.create({
-  useWebGPU: true,
-  memoryLimit: 4096, // 4GB max
-});
+// Verify module loaded
+console.log(healthCheck()); // true
 
-// Load a model (with progress tracking)
-await llm.loadModel('https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf', {
-  onProgress: (loaded, total) => {
-    console.log(`Loading: ${Math.round(loaded / total * 100)}%`);
-  }
-});
-
-// Generate text
-const result = await llm.generate('What is the capital of France?', {
-  maxTokens: 100,
-  temperature: 0.7,
-});
-
-console.log(result.text);
-console.log(`${result.stats.tokensPerSecond.toFixed(1)} tokens/sec`);
-```
-
-## Streaming Tokens
-
-```typescript
-// Stream tokens as they're generated
-await llm.generate('Tell me a story about a robot', {
-  maxTokens: 200,
-  stream: true,
-}, (token, done) => {
-  process.stdout.write(token);
-  if (done) console.log('\n--- Done ---');
-});
-```
-
-## Chat Interface
-
-```typescript
-import { ChatMessage } from '@ruvector/ruvllm-wasm';
-
-const messages: ChatMessage[] = [
-  { role: 'system', content: 'You are a helpful assistant.' },
-  { role: 'user', content: 'What is 2 + 2?' },
+// Format chat conversations
+const template = ChatTemplateWasm.llama3();
+const messages = [
+  ChatMessageWasm.system("You are a helpful assistant."),
+  ChatMessageWasm.user("What is WebAssembly?"),
 ];
+const prompt = template.format(messages);
 
-const response = await llm.chat(messages, {
-  maxTokens: 100,
-  temperature: 0.5,
-});
-
-console.log(response.text); // "2 + 2 equals 4."
+// Semantic routing with HNSW
+const router = new HnswRouterWasm(384, 1000);
+router.addPattern(new Float32Array(384).fill(0.1), "coder", "code tasks");
+const result = router.route(new Float32Array(384).fill(0.1));
+console.log(result.name, result.score); // "coder", 1.0
 ```
 
-## React Hook Example
+## API
 
-```tsx
-import { useState, useEffect } from 'react';
-import { RuvLLMWasm, LoadingStatus } from '@ruvector/ruvllm-wasm';
+### Core Types
 
-function useLLM(modelUrl: string) {
-  const [llm, setLLM] = useState<RuvLLMWasm | null>(null);
-  const [status, setStatus] = useState<LoadingStatus>('idle');
-  const [progress, setProgress] = useState(0);
+| Type | Description |
+|------|-------------|
+| `RuvLLMWasm` | Main inference engine with KV cache + buffer pool |
+| `GenerateConfig` | Generation parameters (temperature, top_k, top_p, repetitionPenalty) |
+| `KvCacheWasm` | Two-tier KV cache for token management |
+| `InferenceArenaWasm` | O(1) bump allocator for inference temporaries |
+| `BufferPoolWasm` | Pre-allocated buffer pool (1KB-256KB size classes) |
 
-  useEffect(() => {
-    let instance: RuvLLMWasm;
+### Chat Templates
 
-    async function init() {
-      instance = await RuvLLMWasm.create({ useWebGPU: true });
-      setStatus('downloading');
-
-      await instance.loadModel(modelUrl, {
-        onProgress: (loaded, total) => setProgress(loaded / total),
-      });
-
-      setStatus('ready');
-      setLLM(instance);
-    }
-
-    init();
-    return () => instance?.unload();
-  }, [modelUrl]);
-
-  return { llm, status, progress };
-}
-
-// Usage
-function ChatApp() {
-  const { llm, status, progress } = useLLM('https://example.com/model.gguf');
-  const [response, setResponse] = useState('');
-
-  if (status !== 'ready') {
-    return <div>Loading: {Math.round(progress * 100)}%</div>;
-  }
-
-  const generate = async () => {
-    const result = await llm!.generate('Hello!', { maxTokens: 50 });
-    setResponse(result.text);
-  };
-
-  return (
-    <div>
-      <button onClick={generate}>Generate</button>
-      <p>{response}</p>
-    </div>
-  );
-}
+```javascript
+// Auto-detect from model ID
+const template = ChatTemplateWasm.detectFromModelId("meta-llama/Llama-3-8B");
+// Or use directly
+const template = ChatTemplateWasm.mistral();
+const prompt = template.format([
+  ChatMessageWasm.system("You are helpful."),
+  ChatMessageWasm.user("Hello!"),
+]);
 ```
 
-## Browser Requirements
+Supported: `llama3()`, `mistral()`, `chatml()`, `phi()`, `gemma()`, `custom(name, pattern)`
 
-| Feature | Required | Benefit |
-|---------|----------|---------|
-| WebAssembly | Yes | Core execution |
-| WebGPU | No (recommended) | 10-50x faster |
-| SharedArrayBuffer | No | Multi-threading |
-| SIMD | No | 2-4x faster math |
+### HNSW Semantic Router
 
-### Check Capabilities
+```javascript
+const router = new HnswRouterWasm(384, 1000); // dimensions, max_patterns
+router.addPattern(embedding, "agent-name", "metadata");
+const result = router.route(queryEmbedding);
+console.log(result.name, result.score);
 
-```typescript
-import { getCapabilities } from '@ruvector/ruvllm-wasm';
-
-const caps = await getCapabilities();
-console.log(caps);
-// {
-//   webgpu: 'available',
-//   sharedArrayBuffer: true,
-//   simd: true,
-//   crossOriginIsolated: true
-// }
+// Persistence
+const json = router.toJson();
+const restored = HnswRouterWasm.fromJson(json);
 ```
 
-### Enable SharedArrayBuffer
+### MicroLoRA Adaptation
 
-Add these headers to your server:
+```javascript
+const config = new MicroLoraConfigWasm();
+config.rank = 2;
+config.inFeatures = 384;
+config.outFeatures = 384;
 
-```
-Cross-Origin-Opener-Policy: same-origin
-Cross-Origin-Embedder-Policy: require-corp
-```
-
-## API Reference
-
-### `RuvLLMWasm.create(options?)`
-
-Create a new instance.
-
-```typescript
-const llm = await RuvLLMWasm.create({
-  useWebGPU: true,      // Enable WebGPU acceleration
-  threads: 4,           // CPU threads (requires SharedArrayBuffer)
-  memoryLimit: 4096,    // Max memory in MB
-});
+const lora = new MicroLoraWasm(config);
+const adapted = lora.apply(inputVector);
+lora.adapt(new AdaptFeedbackWasm(0.9)); // quality score
 ```
 
-### `loadModel(source, options?)`
+### SONA Instant Learning
 
-Load a GGUF model.
+```javascript
+const config = new SonaConfigWasm();
+config.hiddenDim = 384;
+const sona = new SonaInstantWasm(config);
 
-```typescript
-await llm.loadModel(url, {
-  onProgress: (loaded, total) => { /* ... */ }
-});
+const result = sona.instantAdapt(inputVector, 0.85); // quality
+console.log(result.applied, result.qualityEma);
+
+sona.recordPattern(embedding, "agent", true); // success pattern
+const suggestion = sona.suggestAction(queryEmbedding);
 ```
 
-### `generate(prompt, config?, onToken?)`
+### Parallel Inference (Web Workers)
 
-Generate text completion.
+```javascript
+import { ParallelInference, feature_summary } from '@ruvector/ruvllm-wasm';
 
-```typescript
-const result = await llm.generate('Hello', {
-  maxTokens: 100,
-  temperature: 0.7,
-  topP: 0.9,
-  topK: 40,
-  repetitionPenalty: 1.1,
-  stopSequences: ['\n\n'],
-  stream: true,
-}, (token, done) => { /* ... */ });
+console.log(feature_summary()); // browser capability report
+
+const engine = await new ParallelInference(4); // 4 workers
+const result = await engine.matmul(a, b, m, n, k);
+engine.terminate();
 ```
 
-### `chat(messages, config?, onToken?)`
+## Build from Source
 
-Chat completion with message history.
+```bash
+# Install prerequisites
+rustup target add wasm32-unknown-unknown
+cargo install wasm-pack
 
-```typescript
-const result = await llm.chat([
-  { role: 'system', content: 'You are helpful.' },
-  { role: 'user', content: 'Hi!' },
-], { maxTokens: 100 });
+# Release build (workaround for Rust 1.91 codegen bug)
+CARGO_PROFILE_RELEASE_CODEGEN_UNITS=256 CARGO_PROFILE_RELEASE_LTO=off \
+  wasm-pack build crates/ruvllm-wasm --target web --scope ruvector --release
+
+# Dev build
+wasm-pack build crates/ruvllm-wasm --target web --scope ruvector --dev
+
+# With WebGPU support
+CARGO_PROFILE_RELEASE_CODEGEN_UNITS=256 CARGO_PROFILE_RELEASE_LTO=off \
+  wasm-pack build crates/ruvllm-wasm --target web --scope ruvector --release -- --features webgpu
 ```
 
-### `unload()`
+## Browser Compatibility
 
-Free memory and unload model.
+| Browser | Version | Notes |
+|---------|---------|-------|
+| Chrome | 57+ | Full support |
+| Edge | 79+ | Full support |
+| Firefox | 52+ | Full support |
+| Safari | 11+ | Full support |
 
-```typescript
-llm.unload();
-```
+Optional enhancements:
+- **SharedArrayBuffer**: Requires `Cross-Origin-Opener-Policy: same-origin` + `Cross-Origin-Embedder-Policy: require-corp`
+- **WebGPU**: Available with `webgpu` feature flag (Chrome 113+)
 
-## Recommended Models
+## Size
 
-Small models suitable for browser inference:
+~435 KB release WASM (~178 KB gzipped)
 
-| Model | Size | Use Case |
-|-------|------|----------|
-| TinyLlama-1.1B-Q4 | ~700 MB | General chat |
-| Phi-2-Q4 | ~1.6 GB | Code, reasoning |
-| Qwen2-0.5B-Q4 | ~400 MB | Fast responses |
-| StableLM-Zephyr-3B-Q4 | ~2 GB | Quality chat |
+## Related
 
-## Performance Tips
-
-1. **Use WebGPU** - Check support and enable for 10-50x speedup
-2. **Smaller models** - Q4_K_M quantization balances quality/size
-3. **Cache models** - IndexedDB caching avoids re-downloads
-4. **Limit context** - Smaller context = faster inference
-5. **Stream tokens** - Better UX with progressive output
-
-## Related Packages
-
-- [@ruvector/ruvllm](https://www.npmjs.com/package/@ruvector/ruvllm) - Node.js LLM library
-- [@ruvector/ruvllm-cli](https://www.npmjs.com/package/@ruvector/ruvllm-cli) - CLI tool
-- [ruvector](https://www.npmjs.com/package/ruvector) - Vector database
-
-## Documentation
-
-- [WASM Crate](https://github.com/ruvnet/ruvector/tree/main/crates/ruvllm-wasm)
-- [API Reference](https://docs.rs/ruvllm-wasm)
-- [Examples](https://github.com/ruvnet/ruvector/tree/main/examples/ruvLLM)
+- [`@ruvector/ruvllm`](https://www.npmjs.com/package/@ruvector/ruvllm) — Node.js LLM orchestration
+- [`ruvector`](https://www.npmjs.com/package/ruvector) — Full RuVector CLI + MCP tools
+- [ADR-084](../../docs/adr/ADR-084-ruvllm-wasm-publish.md) — Build documentation and known limitations
 
 ## License
 
-MIT OR Apache-2.0
-
----
-
-**Part of the [RuVector](https://github.com/ruvnet/ruvector) ecosystem** - High-performance vector database with self-learning capabilities.
+MIT
