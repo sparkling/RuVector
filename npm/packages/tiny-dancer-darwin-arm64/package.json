@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/tiny-dancer-darwin-arm64",
-  "version": "0.1.15-patch.32",
+  "version": "0.1.15-patch.33",
   "description": "macOS ARM64 (Apple Silicon) native bindings for @ruvector/tiny-dancer",
   "main": "ruvector-tiny-dancer.darwin-arm64.node",
   "files": [
