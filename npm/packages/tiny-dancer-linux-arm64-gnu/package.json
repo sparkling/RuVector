@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/tiny-dancer-linux-arm64-gnu",
-  "version": "0.1.17-patch.30",
+  "version": "0.1.17-patch.31",
   "description": "Linux ARM64 (glibc) native bindings for @ruvector/tiny-dancer",
   "main": "ruvector-tiny-dancer.linux-arm64-gnu.node",
   "files": [
