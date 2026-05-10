@@ -524,6 +524,118 @@ impl RvfStore {
         })
     }
 
+    /// Ingest metadata-only entries (no vectors) into the store.
+    ///
+    /// ADR-0164 Phase A0b. A separate entry point from `ingest_batch` for
+    /// vectorless writes — preserves `ingest_batch`'s vectors-required
+    /// contract, keeps the segment-dir geometry clean (META_SEG without
+    /// VEC_SEG is its own shape, not a degenerate special case of the
+    /// paired-segment shape), and is loud-by-default for older bindings
+    /// (callers that pass `Float32Array` would still hit the divisibility
+    /// check on `ingest_batch`).
+    ///
+    /// Behavior parallel to `ingest_batch`:
+    /// - Skips vector validation (no per-vector dim check) and the empty-
+    ///   valid-vectors early return; both presuppose vectors.
+    /// - Skips VEC_SEG entirely.
+    /// - Reuses `meta_payload::encode_meta_payload` and
+    ///   `SegmentWriter::write_meta_seg`.
+    /// - Populates both `self.metadata` (lossy filter store) and
+    ///   `self.metadata_full` (lossless) — same dual-store pattern as
+    ///   `ingest_batch`.
+    /// - Bumps epoch and writes a new manifest, with the same two-fsync
+    ///   protocol that `ingest_batch` relies on for d11-equivalent
+    ///   durability.
+    ///
+    /// `metadata` is grouped per-id: each `(id, entries)` tuple binds the
+    /// entries slice to that id. Callers may pass an empty entries slice
+    /// for an id (no fields recorded for that id, but the id is still
+    /// "accepted" for accounting).
+    pub fn ingest_metadata_only(
+        &mut self,
+        ids: &[u64],
+        metadata: &[(u64, &[MetadataEntry])],
+    ) -> Result<IngestResult, RvfError> {
+        if self.read_only {
+            return Err(err(ErrorCode::ReadOnly));
+        }
+        if metadata.len() != ids.len() {
+            return Err(err(ErrorCode::DimensionMismatch));
+        }
+        for (i, &id) in ids.iter().enumerate() {
+            if metadata[i].0 != id {
+                return Err(err(ErrorCode::DimensionMismatch));
+            }
+        }
+
+        if ids.is_empty() {
+            self.epoch += 1;
+            return Ok(IngestResult {
+                accepted: 0,
+                rejected: 0,
+                epoch: self.epoch,
+            });
+        }
+
+        let writer = self
+            .seg_writer
+            .as_mut()
+            .ok_or_else(|| err(ErrorCode::InvalidManifest))?;
+
+        // Populate the two in-memory metadata stores (lossy filter + lossless
+        // full) in lock-step with the META_SEG payload encoding. Mirrors the
+        // `ingest_batch` block at the metadata branch above.
+        for &(vid, entries) in metadata.iter() {
+            let fields: Vec<(u16, FilterValue)> = entries
+                .iter()
+                .map(|e| (e.field_id, metadata_value_to_filter(&e.value)))
+                .collect();
+            self.metadata.insert(vid, fields);
+            self.metadata_full.insert(vid, entries.to_vec());
+        }
+
+        let payload = meta_payload::encode_meta_payload(metadata);
+        let (meta_seg_id, meta_seg_offset) = {
+            let mut buf_writer = BufWriter::with_capacity(256 * 1024, &self.file);
+            buf_writer
+                .seek(SeekFrom::End(0))
+                .map_err(|_| err(ErrorCode::FsyncFailed))?;
+            writer
+                .write_meta_seg(&mut buf_writer, &payload)
+                .map_err(|_| err(ErrorCode::FsyncFailed))?
+        };
+        self.segment_dir.push((
+            meta_seg_id,
+            meta_seg_offset,
+            payload.len() as u64,
+            SegmentType::Meta as u8,
+        ));
+
+        // First fsync: META_SEG payload durable. Second fsync follows in
+        // write_manifest() below — together this gives the two-fsync
+        // protocol documented at write_path.rs:1-7 (the d11-equivalent
+        // invariant per ADR-0095/0164).
+        self.file
+            .sync_all()
+            .map_err(|_| err(ErrorCode::FsyncFailed))?;
+
+        let accepted = ids.len() as u64;
+        self.epoch += 1;
+
+        if self.options.witness.witness_ingest {
+            let action = format!("ingest_meta_only:count={},epoch={}", accepted, self.epoch);
+            self.append_witness(witness_types::COMPUTATION, action.as_bytes())?;
+        }
+
+        self.write_manifest()?;
+
+        Ok(IngestResult {
+            accepted,
+            rejected: 0,
+            epoch: self.epoch,
+        })
+    }
+
     /// Query the store for the k nearest neighbors of the given vector.
     pub fn query(
         &self,
@@ -2665,6 +2777,88 @@ mod tests {
         assert_eq!(results[0].id, 1);
 
         store.close().unwrap();
+    }
+
+    #[test]
+    fn ingest_metadata_only_round_trip() {
+        // ADR-0164 Phase A0b: vectorless metadata-only entries persist via
+        // META_SEG and are recovered after restart through metadata_full.
+        // iter_metadata_with_vectors must NOT include them (no vector to
+        // pair against — the filter at iter_metadata_with_vectors drops
+        // metadata-only entries by design; per-id fallback is the documented
+        // reader pattern for this case).
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("meta_only.rvf");
+
+        let options = RvfOptions {
+            dimension: 4,
+            metric: DistanceMetric::L2,
+            ..Default::default()
+        };
+
+        let id_a: u64 = 101;
+        let id_b: u64 = 202;
+        let entries_a = vec![
+            MetadataEntry {
+                field_id: 0,
+                value: MetadataValue::String("alpha".into()),
+            },
+            MetadataEntry {
+                field_id: 1,
+                value: MetadataValue::U64(7),
+            },
+        ];
+        let entries_b = vec![MetadataEntry {
+            field_id: 0,
+            value: MetadataValue::String("beta".into()),
+        }];
+
+        {
+            let mut store = RvfStore::create(&path, options.clone()).unwrap();
+            let ids = [id_a, id_b];
+            let meta: Vec<(u64, &[MetadataEntry])> =
+                vec![(id_a, entries_a.as_slice()), (id_b, entries_b.as_slice())];
+            let result = store.ingest_metadata_only(&ids, &meta).unwrap();
+            assert_eq!(result.accepted, 2);
+            assert_eq!(result.rejected, 0);
+            store.close().unwrap();
+        }
+
+        // Reopen — forces META_SEG decode through boot().
+        {
+            let store = RvfStore::open(&path).unwrap();
+
+            let got_a = store
+                .get_metadata(id_a)
+                .expect("id_a metadata missing after reopen");
+            assert_eq!(got_a.len(), 2);
+            assert_eq!(got_a[0].field_id, 0);
+            assert!(matches!(&got_a[0].value, MetadataValue::String(s) if s == "alpha"));
+            assert_eq!(got_a[1].field_id, 1);
+            assert!(matches!(&got_a[1].value, MetadataValue::U64(7)));
+
+            let got_b = store
+                .get_metadata(id_b)
+                .expect("id_b metadata missing after reopen");
+            assert_eq!(got_b.len(), 1);
+            assert_eq!(got_b[0].field_id, 0);
+            assert!(matches!(&got_b[0].value, MetadataValue::String(s) if s == "beta"));
+
+            // iter_metadata sees both ids (vectorless OK).
+            let mut all_ids: Vec<u64> = store.iter_metadata().map(|(id, _)| id).collect();
+            all_ids.sort();
+            assert_eq!(all_ids, vec![id_a, id_b]);
+
+            // iter_metadata_with_vectors filters out vectorless entries
+            // (`store.rs:1717` — `self.vectors.get(*id)?`). Per ADR-0164
+            // Open Q #5, this is intentional pre-existing behavior; the
+            // documented reader-pattern for vectorless callers is the
+            // per-id fallback path in loadFromNativeSegments.
+            let with_vec_count = store.iter_metadata_with_vectors().count();
+            assert_eq!(with_vec_count, 0);
+
+            store.close().unwrap();
+        }
     }
 
     #[test]

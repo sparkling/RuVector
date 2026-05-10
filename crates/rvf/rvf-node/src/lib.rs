@@ -575,6 +575,79 @@ impl RvfDatabase {
         })
     }
 
+    /// Ingest a batch of metadata-only entries (no vectors).
+    ///
+    /// ADR-0164 Phase A0b. Separate from `ingest_batch` for type clarity:
+    /// callers that have no vector data must use this entry; older
+    /// bindings that lack this method continue to reject empty
+    /// `Float32Array` ingest_batch calls loudly.
+    ///
+    /// `ids[i]` is paired with `metadata_groups[i]` — each group is the
+    /// (possibly empty) list of metadata entries for that id. The
+    /// `metadata_groups` outer length must equal `ids.len()`.
+    #[napi]
+    pub fn ingest_metadata_only(
+        &self,
+        ids: Vec<i64>,
+        metadata_groups: Vec<Vec<RvfMetadataEntry>>,
+    ) -> Result<RvfIngestResult> {
+        let mut guard = self
+            .inner
+            .lock()
+            .map_err(|_| napi::Error::from_reason("Lock poisoned"))?;
+        let store = guard
+            .as_mut()
+            .ok_or_else(|| napi::Error::from_reason("Store is closed"))?;
+
+        let n = ids.len();
+        if n == 0 {
+            return Ok(RvfIngestResult {
+                accepted: 0,
+                rejected: 0,
+                epoch: 0,
+            });
+        }
+
+        if metadata_groups.len() != n {
+            return Err(napi::Error::from_reason(format!(
+                "metadata_groups length ({}) must equal ids length ({})",
+                metadata_groups.len(),
+                n
+            )));
+        }
+
+        let rust_ids: Vec<u64> = ids.iter().map(|&id| id as u64).collect();
+
+        // Parse each per-id entries vector once; keep them owned so we can
+        // borrow into the (id, &[MetadataEntry]) tuple shape the runtime
+        // expects.
+        let parsed_groups: Vec<Vec<RustMetadataEntry>> = metadata_groups
+            .iter()
+            .map(|group| {
+                group
+                    .iter()
+                    .map(parse_metadata_entry)
+                    .collect::<Result<Vec<_>>>()
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        let meta_records: Vec<(u64, &[RustMetadataEntry])> = rust_ids
+            .iter()
+            .zip(parsed_groups.iter())
+            .map(|(&id, group)| (id, group.as_slice()))
+            .collect();
+
+        let result = store
+            .ingest_metadata_only(&rust_ids, &meta_records)
+            .map_err(map_rvf_err)?;
+
+        Ok(RvfIngestResult {
+            accepted: result.accepted as i64,
+            rejected: result.rejected as i64,
+            epoch: result.epoch,
+        })
+    }
+
     /// Get the metadata entries persisted for a single vector ID.
     ///
     /// Returns an empty array if the vector has no metadata, or if the vector
