@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/rvf-node-win32-x64-msvc",
-  "version": "0.1.7-patch.65",
+  "version": "0.1.7-patch.66",
   "cpu": [
     "x64"
   ],
