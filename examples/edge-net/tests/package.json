@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/edge-net-tests",
-  "version": "0.1.0-patch.49",
+  "version": "0.1.0-patch.50",
   "description": "Security and persistence test suite for Edge-Net relay server",
   "type": "module",
   "scripts": {
