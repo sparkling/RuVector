@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/workspace",
-  "version": "0.1.0-patch.68",
+  "version": "0.1.0-patch.69",
   "private": true,
   "workspaces": [
     "packages/*"

@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/wasm",
-  "version": "0.1.1-patch.67",
+  "version": "0.1.1-patch.68",
   "description": "WebAssembly bindings for Ruvector - High-performance vector database for browsers and Node.js",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
