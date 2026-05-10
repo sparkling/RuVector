@@ -148,6 +148,28 @@ pub(crate) fn find_latest_manifest<R: Read + Seek>(
     Ok(None)
 }
 
+/// Read and parse a manifest segment at a known absolute offset.
+///
+/// Used by the ADR-0167 Phase 1 RootHeader fast path in `RvfStore::boot()`:
+/// the RootHeader carries the manifest offset directly, so we can jump
+/// straight there instead of tail-scanning. Returns `Ok(None)` if the
+/// offset doesn't point at a valid Manifest segment (e.g. legacy file
+/// whose RootHeader space contains real segment bytes).
+#[allow(dead_code)]
+pub(crate) fn read_manifest_at<R: Read + Seek>(
+    reader: &mut R,
+    offset: u64,
+) -> io::Result<Option<ParsedManifest>> {
+    let (header, payload) = match read_segment_payload(reader, offset) {
+        Ok(t) => t,
+        Err(_) => return Ok(None),
+    };
+    if header.seg_type != SegmentType::Manifest as u8 {
+        return Ok(None);
+    }
+    Ok(parse_manifest_payload(&payload))
+}
+
 /// Parse a manifest payload into structured data.
 fn parse_manifest_payload(payload: &[u8]) -> Option<ParsedManifest> {
     // Minimum header: epoch(4) + dim(2) + total_vectors(8) + seg_count(4) + profile(1) + pad(3) = 22

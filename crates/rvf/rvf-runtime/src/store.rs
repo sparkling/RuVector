@@ -26,6 +26,7 @@ use crate::membership::MembershipFilter;
 use crate::meta_payload;
 use crate::options::*;
 use crate::read_path::{self, VectorData};
+use crate::root_header;
 use crate::status::{CompactionState, StoreStatus};
 use crate::write_path::SegmentWriter;
 
@@ -124,6 +125,13 @@ pub struct RvfStore {
     /// Hash of the last witness entry, used to chain-link successive witnesses.
     /// All zeros when no witness has been written yet (genesis).
     last_witness_hash: [u8; 32],
+    /// ADR-0167 Phase 1: true iff this file has a valid RootHeader prefix
+    /// at offset 0..128 (i.e. created post-Phase-1, or upgraded via
+    /// `compact()`). Legacy files where `boot()` fell back to tail-scan
+    /// have this `false` and write_manifest skips `commit_new_root` so it
+    /// doesn't corrupt the file by writing slot bytes over real segments.
+    /// Compact always sets this `true` on the rewritten file.
+    has_root_header: bool,
 }
 
 impl RvfStore {
@@ -172,6 +180,13 @@ impl RvfStore {
             .open(path)
             .map_err(|_| err(ErrorCode::FsyncFailed))?;
 
+        // ADR-0167 Phase 1: reserve 128 bytes at the start of the file for
+        // the double-buffered RootHeader. write_manifest will append the
+        // first manifest at offset 128+ (because `SeekFrom::End(0)` lands
+        // there after this reservation), and the subsequent
+        // commit_new_root call will install the first valid root slot.
+        reserve_root_header_space(&file)?;
+
         // Generate a random file_id from path hash + timestamp
         let file_id = generate_file_id(path);
 
@@ -204,6 +219,11 @@ impl RvfStore {
             membership_filter: None,
             parent_path: None,
             last_witness_hash: [0u8; 32],
+            // ADR-0167 Phase 1: new file — RootHeader prefix was just
+            // reserved at offsets 0..128 by `reserve_root_header_space`.
+            // write_manifest will append the first manifest at offset 128+
+            // and commit_new_root will then install slot 0 pointing at it.
+            has_root_header: true,
         };
 
         store.write_manifest()?;
@@ -327,6 +347,9 @@ impl RvfStore {
             membership_filter: None,
             parent_path: None,
             last_witness_hash: [0u8; 32],
+            // ADR-0167 Phase 1: boot() will set this to true if the file
+            // has a valid RootHeader prefix (post-Phase-1 files).
+            has_root_header: false,
         };
 
         store.boot()?;
@@ -374,6 +397,9 @@ impl RvfStore {
             membership_filter: None,
             parent_path: None,
             last_witness_hash: [0u8; 32],
+            // ADR-0167 Phase 1: boot() will set this to true if the file
+            // has a valid RootHeader prefix (post-Phase-1 files).
+            has_root_header: false,
         };
 
         store.boot()?;
@@ -1027,6 +1053,19 @@ impl RvfStore {
         let temp_path = self.path.with_extension("rvf.compact.tmp");
         let mut new_segment_dir = Vec::new();
         let mut seg_writer = SegmentWriter::new(1);
+
+        // ADR-0167 Phase 1 (AM-1): mint a fresh file_identity for the new
+        // inode. Readers caching a pre-compact RootSlot will detect the
+        // identity mismatch and surface a loud RvfCorruptError on stale
+        // reads, rather than silently consuming post-compact garbage at
+        // the same offset.
+        let new_file_id = generate_file_id(&self.path);
+        let new_file_identity = FileIdentity::new_root(new_file_id);
+
+        // Track the manifest offset within the temp file so we can point
+        // the RootHeader at it after the segment lands.
+        let manifest_offset_in_temp: u64;
+        let manifest_payload_len_in_temp: u64;
         {
             let temp_file = OpenOptions::new()
                 .read(true)
@@ -1037,6 +1076,13 @@ impl RvfStore {
                 .map_err(|_| err(ErrorCode::DiskFull))?;
 
             let mut temp_writer = BufWriter::new(&temp_file);
+
+            // ADR-0167 Phase 1: reserve offset 0..128 for the RootHeader.
+            // Subsequent segment offsets land at 128+. We fill these
+            // bytes properly after the manifest is durably written.
+            temp_writer
+                .write_all(&[0u8; root_header::ROOT_HEADER_SIZE as usize])
+                .map_err(|_| err(ErrorCode::FsyncFailed))?;
 
             let live_ids: Vec<u64> = self.vectors.ids().copied().collect();
             let live_vecs: Vec<Vec<f32>> = live_ids
@@ -1100,16 +1146,14 @@ impl RvfStore {
             self.epoch += 1;
             let total_vectors = live_ids.len() as u64;
             let empty_dels: Vec<u64> = Vec::new();
-            let fi = if self.file_identity.file_id != [0u8; 16] {
-                Some(&self.file_identity)
-            } else {
-                None
-            };
+            // ADR-0167 Phase 1 (AM-1): the manifest carries the FRESH
+            // identity, matching what the RootHeader slot will record.
+            let fi: Option<&FileIdentity> = Some(&new_file_identity);
             // Flush before writing manifest so offsets are accurate.
             temp_writer
                 .flush()
                 .map_err(|_| err(ErrorCode::FsyncFailed))?;
-            seg_writer
+            let (_manifest_seg_id, mfst_off) = seg_writer
                 .write_manifest_seg_with_identity(
                     &mut temp_writer,
                     self.epoch,
@@ -1121,6 +1165,12 @@ impl RvfStore {
                     fi,
                 )
                 .map_err(|_| err(ErrorCode::FsyncFailed))?;
+            manifest_offset_in_temp = mfst_off;
+
+            let mut mp_len = (22 + new_segment_dir.len() * 25 + 4 + empty_dels.len() * 8) as u64;
+            // FIDI trailer present here unconditionally (fi is always Some).
+            mp_len += 4 + 68;
+            manifest_payload_len_in_temp = mp_len;
 
             temp_writer
                 .flush()
@@ -1128,6 +1178,19 @@ impl RvfStore {
             temp_file
                 .sync_all()
                 .map_err(|_| err(ErrorCode::FsyncFailed))?;
+
+            // ADR-0167 Phase 1: stamp the RootHeader at offset 0..128 of
+            // the temp file, pointing at the just-written manifest. This
+            // is the LAST write before rename — once present, any reader
+            // that opens the new inode will see a valid root slot
+            // immediately, with no tail-scan needed.
+            root_header::write_initial_header(
+                &temp_file,
+                manifest_offset_in_temp,
+                manifest_payload_len_in_temp,
+                new_file_id,
+            )
+            .map_err(|_| err(ErrorCode::FsyncFailed))?;
         }
 
         fs::rename(&temp_path, &self.path).map_err(|_| err(ErrorCode::FsyncFailed))?;
@@ -1148,6 +1211,14 @@ impl RvfStore {
         self.segment_dir = new_segment_dir;
         self.seg_writer = Some(seg_writer);
         self.last_compaction_time = now_secs();
+
+        // ADR-0167 Phase 1 (AM-1): the new inode owns a fresh identity.
+        // After this assignment, write_manifest's commit_new_root will
+        // stamp this identity into every subsequent RootSlot.
+        self.file_identity = new_file_identity;
+        // The compacted file always carries a RootHeader prefix —
+        // upgrades legacy files in place (AM-9 opportunistic upgrade).
+        self.has_root_header = true;
 
         // Reset witness chain after compaction (the file has been rewritten).
         self.last_witness_hash = [0u8; 32];
@@ -1995,6 +2066,10 @@ impl RvfStore {
             .open(child_path)
             .map_err(|_| err(ErrorCode::FsyncFailed))?;
 
+        // ADR-0167 Phase 1: reserve 128 bytes at the start of the child
+        // file for the RootHeader (matches `RvfStore::create` layout).
+        reserve_root_header_space(&file)?;
+
         let writer_lock = WriterLock::acquire(child_path).map_err(|_| err(ErrorCode::LockHeld))?;
 
         // Detect domain profile from child extension
@@ -2026,6 +2101,10 @@ impl RvfStore {
             membership_filter: None,
             parent_path: Some(self.path.clone()),
             last_witness_hash: [0u8; 32],
+            // ADR-0167 Phase 1: derive() reserves the RootHeader prefix
+            // below before write_manifest, so this child file has the
+            // RootHeader layout from inception.
+            has_root_header: true,
         };
 
         store.write_manifest()?;
@@ -2132,16 +2211,63 @@ impl RvfStore {
     }
 
     fn boot(&mut self) -> Result<(), RvfError> {
-        let manifest = {
-            let mut reader = BufReader::new(&self.file);
-            read_path::find_latest_manifest(&mut reader)
-                .map_err(|_| err(ErrorCode::ManifestNotFound))?
-        };
-
+        // ADR-0167 Phase 1: RootHeader fast path.
+        //
+        // 1. Read both root slots; pick the active one via txnid-comparison.
+        //    A torn slot (bad magic / CRC) is silently skipped — the file
+        //    is never quiet long enough for tail-scan races to matter,
+        //    because the manifest offset is now a fixed-position atomic
+        //    8-byte pointer, not a value scanned out of the tail.
+        // 2. If the active slot's manifest fails to parse (AM-5), fall
+        //    back to the OTHER valid slot before bailing — LMDB-canonical
+        //    recovery.
+        // 3. If RootHeader::read returns NoValidSlots (legacy file or
+        //    brand-new file pre-first-commit), fall back to the legacy
+        //    tail-scan. The store records `has_root_header = false` so
+        //    write_manifest won't try to write slot bytes over real
+        //    segment data later (would corrupt a legacy file).
+        let mut manifest: Option<read_path::ParsedManifest> = None;
+        let mut found_via_root_header = false;
+        if let Ok(rh) = root_header::RootHeader::read(&self.file) {
+            // Try slots in active-first order (highest valid txnid first).
+            let slots: [(u8, &root_header::RootSlot); 2] =
+                [(0, &rh.slot0), (1, &rh.slot1)];
+            let mut order = slots;
+            // Sort so the higher valid-txnid slot is tried first.
+            order.sort_by_key(|(_, s)| std::cmp::Reverse(if s.is_valid() { s.txnid() } else { 0 }));
+            for (_, slot) in &order {
+                if !slot.is_valid() {
+                    continue;
+                }
+                let mut reader = BufReader::new(&self.file);
+                match read_path::read_manifest_at(&mut reader, slot.manifest_offset()) {
+                    Ok(Some(m)) => {
+                        manifest = Some(m);
+                        found_via_root_header = true;
+                        break;
+                    }
+                    _ => {
+                        // AM-5: this slot's manifest is unreadable; try the
+                        // other slot before giving up.
+                        continue;
+                    }
+                }
+            }
+        }
         let manifest = match manifest {
             Some(m) => m,
-            None => return Err(err(ErrorCode::ManifestNotFound)),
+            None => {
+                // Legacy fallback: tail-scan (pre-Phase-1 file format).
+                let mut reader = BufReader::new(&self.file);
+                let m = read_path::find_latest_manifest(&mut reader)
+                    .map_err(|_| err(ErrorCode::ManifestNotFound))?;
+                match m {
+                    Some(m) => m,
+                    None => return Err(err(ErrorCode::ManifestNotFound)),
+                }
+            }
         };
+        self.has_root_header = found_via_root_header;
 
         self.epoch = manifest.epoch;
         self.options.dimension = manifest.dimension;
@@ -2285,8 +2411,45 @@ impl RvfStore {
         self.file
             .sync_all()
             .map_err(|_| err(ErrorCode::FsyncFailed))?;
+
+        // ADR-0167 Phase 1: atomically flip the RootHeader's active slot
+        // to point at the just-written manifest. Two-tier sync (barrier
+        // then durable) inside commit_new_root makes the slot bytes
+        // visible to peers without the cost of a second full F_FULLFSYNC.
+        //
+        // Skipped on legacy files where boot() fell back to tail-scan —
+        // those don't have the 128-byte RootHeader prefix reserved, so
+        // writing slot bytes at offset 0..128 would corrupt real segment
+        // data. Such files keep working through the (slower) tail-scan
+        // path until compact() opportunistically upgrades them.
+        if self.has_root_header {
+            root_header::commit_new_root(
+                &self.file,
+                manifest_offset,
+                manifest_payload_len,
+                self.file_identity.file_id,
+            )
+            .map_err(|_| err(ErrorCode::FsyncFailed))?;
+        }
+
         Ok(())
     }
+}
+
+/// ADR-0167 Phase 1: reserve the first 128 bytes of a freshly-created
+/// `.rvf` for the double-buffered RootHeader. Both slots are written
+/// zeroed (invalid; `txnid == 0`), so the file's first
+/// `commit_new_root` call falls into the "no valid slots" branch and
+/// installs slot 0 with `txnid = 1`. The reservation also moves
+/// `SeekFrom::End(0)` to byte 128, which is where the first manifest
+/// segment will land — keeping offsets 0..128 forever clear of
+/// segment data.
+fn reserve_root_header_space(file: &std::fs::File) -> Result<(), RvfError> {
+    use std::io::Write;
+    let zeros = [0u8; root_header::ROOT_HEADER_SIZE as usize];
+    let mut f: &std::fs::File = file;
+    f.write_all(&zeros).map_err(|_| err(ErrorCode::FsyncFailed))?;
+    Ok(())
 }
 
 fn compute_distance(a: &[f32], b: &[f32], metric: &DistanceMetric) -> f32 {
@@ -2706,7 +2869,17 @@ mod tests {
     }
 
     #[test]
-    fn lock_prevents_two_writers() {
+    fn lock_allows_in_process_repeat_acquire() {
+        // Per the ADR-0095 amendment + locking.rs documentation, in-process
+        // repeat acquisitions on the SAME path go through a refcount
+        // short-circuit, returning Ok rather than deadlocking. The kernel
+        // flock guards CROSS-process exclusivity — that invariant is
+        // exercised by `tests/adr0167_n8_stress.rs` (which spawns N
+        // independent processes), not by this in-process test.
+        //
+        // This test pins the documented in-process behavior so an
+        // accidental regression to "first-open returns LockHeld on the
+        // refcount path" would be caught here.
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("locked.rvf");
 
@@ -2717,9 +2890,12 @@ mod tests {
         };
 
         let _store1 = RvfStore::create(&path, options.clone()).unwrap();
-
         let result = RvfStore::open(&path);
-        assert!(result.is_err());
+        assert!(
+            result.is_ok(),
+            "in-process repeat acquire must succeed via refcount; got {:?}",
+            result.err()
+        );
     }
 
     #[test]

@@ -21,6 +21,13 @@ ed25519 = ["rvf-types/ed25519"]
 [dependencies]
 rvf-types = { version = "0.2.0", path = "../rvf-types", features = ["std"] }
 
+# ADR-0167 Phase 1 (2026-05-10): RootHeader atomic root pointer +
+# F_BARRIERFSYNC/F_FULLFSYNC durability helpers. Per
+# Amendment 2026-05-10d we deliberately do NOT add `fs2` (DA-1: 8-years
+# stagnant; keep `libc::flock` for Phase 1 and defer `fd-lock` to ADR-0168).
+crc32fast = "1.4"
+zerocopy = { version = "0.7", features = ["derive"] }
+
 # ADR-0095 amendment (2026-05-01): kernel flock-based WriterLock needs libc
 # for `open`/`close`/`flock` syscalls. Same crate already used by rvf-node's
 # IngestLockGuard, so version-pinning is consistent across the workspace.
@@ -34,3 +41,14 @@ rand = "0.8"
 [[example]]
 name = "qr_seed_encode"
 required-features = ["qr"]
+
+# ADR-0167 Phase 1: worker helper for cross-process stress tests
+# (`tests/adr0167_n8_stress.rs`). The integration test references this via
+# `env!("CARGO_BIN_EXE_rvf_test_writer")`, which cargo populates
+# automatically when running `cargo test`.
+[[bin]]
+name = "rvf_test_writer"
+path = "src/bin/rvf_test_writer.rs"
+test = false
+bench = false
+doc = false
