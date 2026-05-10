@@ -1,7 +1,7 @@
 {
   "name": "@ruvector/rvagent-wasm",
   "description": "rvAgent WASM bindings — browser and Node.js agent execution",
-  "version": "0.2.1-patch.69",
+  "version": "0.2.1-patch.70",
   "license": "MIT OR Apache-2.0",
   "repository": {
     "type": "git",
