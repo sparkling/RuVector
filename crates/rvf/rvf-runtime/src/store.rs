@@ -2235,7 +2235,13 @@ impl RvfStore {
         //    segment data later (would corrupt a legacy file).
         let mut manifest: Option<read_path::ParsedManifest> = None;
         let mut found_via_root_header = false;
+        // feedback-no-fallbacks: track whether either slot carries ROOT_MAGIC
+        // (regardless of CRC validity). If so this is a Phase-1 file and the
+        // tail-scan fallback MUST NOT be reached — surface loud instead.
+        let mut has_phase1_magic = false;
         if let Ok(rh) = root_header::RootHeader::read(&self.file) {
+            has_phase1_magic = rh.slot0.magic == root_header::ROOT_MAGIC
+                || rh.slot1.magic == root_header::ROOT_MAGIC;
             // Try slots in active-first order (highest valid txnid first).
             let slots: [(u8, &root_header::RootSlot); 2] =
                 [(0, &rh.slot0), (1, &rh.slot1)];
@@ -2264,7 +2270,15 @@ impl RvfStore {
         let manifest = match manifest {
             Some(m) => m,
             None => {
-                // Legacy fallback: tail-scan (pre-Phase-1 file format).
+                if has_phase1_magic {
+                    // Phase-1 file (ROOT_MAGIC present) with no readable slot.
+                    // This is either corruption or a peer mid-create race.
+                    // Fail loud — the cold-start retry in open() covers the race
+                    // window (is_coldstart_race_shape includes InvalidManifest).
+                    // Per feedback-no-fallbacks: NEVER silently degrade to tail-scan.
+                    return Err(err(ErrorCode::InvalidManifest));
+                }
+                // Legacy file (no ROOT_MAGIC in either slot): tail-scan is safe.
                 let mut reader = BufReader::new(&self.file);
                 let m = read_path::find_latest_manifest(&mut reader)
                     .map_err(|_| err(ErrorCode::ManifestNotFound))?;
@@ -3603,5 +3617,47 @@ mod tests {
             elapsed.as_millis() >= 100,
             "expected retry loop to actually iterate, took only {elapsed:?}"
         );
+    }
+
+    #[test]
+    fn boot_phase1_corrupt_slots_fails_loud() {
+        // Asserts feedback-no-fallbacks for the Phase-1 fast path:
+        // a file with ROOT_MAGIC in slot0 but both slot CRCs deliberately
+        // wrong MUST NOT silently fall through to tail-scan. boot() must
+        // surface InvalidManifest (cold-start shape), which open()'s retry
+        // loop exhausts and returns loud.
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("corrupt-phase1.rvf");
+
+        // Build the corrupt header: ROOT_MAGIC at bytes 0..8, then 56 bytes
+        // of 0xFF garbage (txnid field onward) — CRC will not match.
+        // Slot 1 (bytes 64..128) is all zeros (zeroed = no magic, invalid).
+        let mut file_bytes = vec![0u8; 256];
+        file_bytes[0..8].copy_from_slice(b"RVFROOT\0"); // slot0 magic
+        for b in file_bytes[8..64].iter_mut() {
+            *b = 0xFF; // txnid + offset + len + identity + garbage CRC
+        }
+        // Slot 1 stays zeroed (bytes 64..128). Neither slot has a valid CRC.
+
+        // Append a fake segment-magic so the tail-scan path WOULD return
+        // something if it were reached. This proves we are NOT falling through.
+        // SEGMENT_MAGIC is `b"SFVR"` (4 bytes); pad with garbage to reach
+        // a plausible-looking (but still unparseable) tail entry.
+        let mut fake_seg = b"SFVR".to_vec();
+        fake_seg.extend_from_slice(&[0xAA_u8; 60]); // garbage payload
+        file_bytes.extend_from_slice(&fake_seg);
+
+        std::fs::write(&path, &file_bytes).unwrap();
+
+        // open() retries up to MAX_COLDSTART_RETRIES; the file never changes,
+        // so the loop exhausts and returns the original cold-start-shape error.
+        let result = RvfStore::open(&path);
+        match result {
+            Ok(_) => panic!("Phase-1 corrupt-slot file must not open successfully"),
+            Err(e) => assert!(
+                matches!(e, RvfError::Code(ErrorCode::InvalidManifest)),
+                "expected InvalidManifest from Phase-1 corrupt slots, got: {e:?}"
+            ),
+        }
     }
 }

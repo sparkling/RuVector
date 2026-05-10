@@ -41,6 +41,9 @@ pub mod status;
 pub mod store;
 pub mod witness;
 pub mod write_path;
+pub mod writer_coordinator;
+
+pub use writer_coordinator::{CoordinatorMetrics, WriterCoordinator};
 
 pub use adversarial::{
     adaptive_n_probe, centroid_distance_cv, combined_effective_n_probe,
