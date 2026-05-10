@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/graph-node-win32-x64-msvc",
-  "version": "0.1.26-patch.40",
+  "version": "0.1.26-patch.41",
   "os": [
     "win32"
   ],
