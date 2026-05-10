@@ -53,8 +53,8 @@ impl DeletionBitmap {
         self.deleted.contains(&id)
     }
 
-    /// Remove vector IDs from the bitmap (after compaction physically removes them).
-    #[allow(dead_code)]
+    /// Remove vector IDs from the bitmap (after compaction physically removes them,
+    /// or when re-ingestion revives a previously-deleted vid).
     pub(crate) fn clear_ids(&mut self, ids: &[u64]) {
         for &id in ids {
             self.deleted.remove(&id);

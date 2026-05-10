@@ -454,6 +454,18 @@ impl RvfStore {
             self.vectors.insert(vec_id, vec_data.to_vec());
         }
 
+        // p8-inv12 fix (2026-05-10): re-ingestion of a vid revives it from the
+        // deletion bitmap. Without this, a cross-process flow that deletes
+        // vid=N then re-ingests at vid=N (typical when the JS RvfBackend
+        // allocates the same monotonic numId in a fresh process) silently
+        // drops the re-ingested entry on next reopen because boot()'s
+        // META_SEG replay filters on `deletion_bitmap.is_deleted(vid)`. The
+        // append-only manifest carries deleted_ids forward, so vid=N stays
+        // tombstoned forever. Re-ingest is the user explicitly saying "this
+        // id is alive again"; metadata_full and vectors are already
+        // overwritten above, so the bitmap was the only out-of-sync state.
+        self.deletion_bitmap.clear_ids(&valid_ids);
+
         // ADR-0154 Phase 1: persist metadata to disk via META_SEG, in addition
         // to the legacy in-memory MetadataStore. The legacy store is lossy on
         // Bytes; the META_SEG is the durable source of truth.
@@ -581,6 +593,11 @@ impl RvfStore {
             .seg_writer
             .as_mut()
             .ok_or_else(|| err(ErrorCode::InvalidManifest))?;
+
+        // p8-inv12 fix (2026-05-10): mirrors ingest_batch — re-ingestion
+        // revives the vid from the deletion bitmap. See the longer note at
+        // ingest_batch above for the cross-process mechanism.
+        self.deletion_bitmap.clear_ids(ids);
 
         // Populate the two in-memory metadata stores (lossy filter + lossless
         // full) in lock-step with the META_SEG payload encoding. Mirrors the
