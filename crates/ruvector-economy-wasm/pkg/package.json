@@ -6,7 +6,7 @@
   ],
   "author": "RuVector Team <ruvnet@users.noreply.github.com>",
   "description": "CRDT-based autonomous credit economy for distributed compute networks - WASM optimized",
-  "version": "0.1.29-patch.35",
+  "version": "0.1.29-patch.36",
   "license": "MIT",
   "repository": {
     "type": "git",

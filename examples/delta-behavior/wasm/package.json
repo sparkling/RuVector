@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/delta-behavior",
-  "version": "0.1.0-patch.35",
+  "version": "0.1.0-patch.36",
   "description": "Delta-Behavior: TypeScript/JavaScript SDK for coherence-preserving state transitions and self-limiting AI systems",
   "type": "module",
   "main": "./dist/index.js",
