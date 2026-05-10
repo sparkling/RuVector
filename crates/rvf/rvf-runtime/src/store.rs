@@ -1078,10 +1078,17 @@ impl RvfStore {
             let mut temp_writer = BufWriter::new(&temp_file);
 
             // ADR-0167 Phase 1: reserve offset 0..128 for the RootHeader.
-            // Subsequent segment offsets land at 128+. We fill these
-            // bytes properly after the manifest is durably written.
+            // Stamp the magic at offset 0 immediately (same rationale as
+            // `reserve_root_header_space`: makes the in-flight file
+            // recognisably Phase-1 native to any JS peer that peeks
+            // mid-construction, though for `compact()` peers cannot
+            // observe the .compact.tmp file until rename anyway).
+            // Subsequent segment offsets land at 128+. The proper slots
+            // are written by `write_initial_header` after the manifest.
+            let mut header_prefix = [0u8; root_header::ROOT_HEADER_SIZE as usize];
+            header_prefix[..8].copy_from_slice(&root_header::ROOT_MAGIC);
             temp_writer
-                .write_all(&[0u8; root_header::ROOT_HEADER_SIZE as usize])
+                .write_all(&header_prefix)
                 .map_err(|_| err(ErrorCode::FsyncFailed))?;
 
             let live_ids: Vec<u64> = self.vectors.ids().copied().collect();
@@ -2446,9 +2453,19 @@ impl RvfStore {
 /// segment data.
 fn reserve_root_header_space(file: &std::fs::File) -> Result<(), RvfError> {
     use std::io::Write;
-    let zeros = [0u8; root_header::ROOT_HEADER_SIZE as usize];
+    // ADR-0167 Phase 1 (peer-visibility fix): stamp the RVFROOT\0 magic
+    // at offset 0 IMMEDIATELY so a peer process peeking the freshly-created
+    // file during the create-→-first-write window sees `RVFROOT\0` and
+    // recognises it as Phase-1 native, rather than 8 zero bytes (which the
+    // JS preflight rejects as "bad magic"). The slot is still INVALID for
+    // boot purposes — txnid==0 makes `RootSlot::is_valid()` return false —
+    // so peer boot() falls through to the cold-start path, NOT a corrupt
+    // manifest read. commit_new_root rewrites slot 0 with the real txnid+
+    // manifest pointer after the first write_manifest call.
+    let mut prefix = [0u8; root_header::ROOT_HEADER_SIZE as usize];
+    prefix[..8].copy_from_slice(&root_header::ROOT_MAGIC);
     let mut f: &std::fs::File = file;
-    f.write_all(&zeros).map_err(|_| err(ErrorCode::FsyncFailed))?;
+    f.write_all(&prefix).map_err(|_| err(ErrorCode::FsyncFailed))?;
     Ok(())
 }
 
