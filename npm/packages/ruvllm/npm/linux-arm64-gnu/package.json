@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/ruvllm-linux-arm64-gnu",
-  "version": "2.0.0-patch.51",
+  "version": "2.0.0-patch.52",
   "description": "RuvLLM native bindings for Linux ARM64 (glibc)",
   "os": [
     "linux"
