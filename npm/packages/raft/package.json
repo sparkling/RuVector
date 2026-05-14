@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/raft",
-  "version": "0.1.0-patch.57",
+  "version": "0.1.0-patch.58",
   "description": "Raft consensus implementation for distributed systems - leader election, log replication, and fault tolerance",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
