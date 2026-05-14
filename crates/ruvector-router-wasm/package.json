@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/router-wasm",
-  "version": "0.1.0-patch.56",
+  "version": "0.1.0-patch.57",
   "description": "WebAssembly bindings for ruvector-router - Semantic router with HNSW vector search for browsers",
   "main": "pkg/ruvector_router_wasm.js",
   "types": "pkg/ruvector_router_wasm.d.ts",
