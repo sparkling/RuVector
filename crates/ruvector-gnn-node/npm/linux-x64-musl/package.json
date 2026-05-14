@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/gnn-linux-x64-musl",
-  "version": "0.1.25-patch.61",
+  "version": "0.1.25-patch.62",
   "os": [
     "linux"
   ],
