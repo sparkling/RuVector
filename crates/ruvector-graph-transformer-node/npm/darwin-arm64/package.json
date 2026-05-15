@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/graph-transformer-darwin-arm64",
-  "version": "2.0.4-patch.79",
+  "version": "2.0.4-patch.80",
   "os": [
     "darwin"
   ],
