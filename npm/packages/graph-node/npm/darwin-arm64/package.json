@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/graph-node-darwin-arm64",
-  "version": "0.1.26-patch.74",
+  "version": "0.1.26-patch.75",
   "os": [
     "darwin"
   ],
