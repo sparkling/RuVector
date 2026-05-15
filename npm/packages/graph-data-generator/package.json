@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/graph-data-generator",
-  "version": "0.1.0-patch.225",
+  "version": "0.1.0-patch.226",
   "description": "AI-powered synthetic graph data generation with OpenRouter/Kimi K2 integration for Neo4j knowledge graphs, social networks, and temporal events",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -53,14 +53,14 @@
     "prepublishOnly": "npm run build:all"
   },
   "dependencies": {
-    "@ruvector/agentic-synth": "0.1.6-patch.203",
+    "@ruvector/agentic-synth": "0.1.6-patch.204",
     "dotenv": "^16.6.1",
     "p-retry": "^6.2.1",
     "p-throttle": "^6.2.0",
     "zod": "^4.1.12"
   },
   "peerDependencies": {
-    "@ruvector/agentic-synth": "0.1.6-patch.203"
+    "@ruvector/agentic-synth": "0.1.6-patch.204"
   },
   "peerDependenciesMeta": {
     "@ruvector/agentic-synth": {
