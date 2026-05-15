@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/attention-wasm",
-  "version": "0.1.32-patch.68",
+  "version": "0.1.32-patch.69",
   "description": "High-performance WebAssembly attention mechanisms for transformers and LLMs: Multi-Head, Flash Attention, Hyperbolic, Linear (Performer), MoE, Local-Global, and CGT Sheaf Attention with coherence gating. GPU-accelerated with SIMD fallback.",
   "main": "pkg/ruvector_attention_wasm.js",
   "module": "pkg/ruvector_attention_wasm.js",
