@@ -1,6 +1,6 @@
 {
   "name": "ruvector",
-  "version": "0.1.2-patch.599",
+  "version": "0.1.2-patch.600",
   "description": "Self-learning vector database for Node.js — hybrid search, Graph RAG, FlashAttention-3, HNSW, 50+ attention mechanisms",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -71,17 +71,17 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
-    "@ruvector/attention": "0.1.4-patch.107",
-    "@ruvector/core": "0.1.31-patch.109",
-    "@ruvector/gnn": "0.1.25-patch.102",
-    "@ruvector/sona": "0.1.6-patch.80",
+    "@ruvector/attention": "0.1.4-patch.108",
+    "@ruvector/core": "0.1.31-patch.110",
+    "@ruvector/gnn": "0.1.25-patch.103",
+    "@ruvector/sona": "0.1.6-patch.81",
     "chalk": "^4.1.2",
     "commander": "^11.1.0",
     "js-beautify": "^1.15.4",
     "ora": "^5.4.1"
   },
   "optionalDependencies": {
-    "@ruvector/rvf": "0.2.0-patch.131"
+    "@ruvector/rvf": "0.2.0-patch.132"
   },
   "devDependencies": {
     "@types/node": "^20.10.5",
@@ -96,10 +96,10 @@
     "LICENSE"
   ],
   "peerDependencies": {
-    "@ruvector/diskann": "0.1.0-patch.80",
-    "@ruvector/pi-brain": "0.1.0-patch.80",
-    "@ruvector/router": "0.1.30-patch.80",
-    "@ruvector/ruvllm": "2.5.5-patch.80"
+    "@ruvector/diskann": "0.1.0-patch.81",
+    "@ruvector/pi-brain": "0.1.0-patch.81",
+    "@ruvector/router": "0.1.30-patch.81",
+    "@ruvector/ruvllm": "2.5.5-patch.81"
   },
   "peerDependenciesMeta": {
     "@ruvector/pi-brain": {
