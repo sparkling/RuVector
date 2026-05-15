@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/ios-wasm-types",
-  "version": "0.1.0-patch.84",
+  "version": "0.1.0-patch.85",
   "description": "TypeScript definitions for Ruvector iOS WASM - Privacy-preserving on-device AI",
   "types": "ruvector-ios.d.ts",
   "files": [
