@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/graph-node",
-  "version": "2.0.3-patch.71",
+  "version": "2.0.3-patch.72",
   "main": "index.js",
   "types": "index.d.ts",
   "napi": {

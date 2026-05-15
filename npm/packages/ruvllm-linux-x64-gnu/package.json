@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/ruvllm-linux-x64-gnu",
-  "version": "2.0.0-patch.70",
+  "version": "2.0.0-patch.71",
   "os": [
     "linux"
   ],
