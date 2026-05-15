@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/sona-linux-arm64-gnu",
-  "version": "0.1.5-patch.87",
+  "version": "0.1.5-patch.88",
   "os": [
     "linux"
   ],
