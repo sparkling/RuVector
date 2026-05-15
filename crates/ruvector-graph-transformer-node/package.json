@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/graph-transformer",
-  "version": "2.0.4-patch.97",
+  "version": "2.0.4-patch.98",
   "description": "Proof-gated graph transformer with 8 verified modules — physics, biological, manifold, temporal, economic graph intelligence via NAPI-RS",
   "main": "index.js",
   "types": "index.d.ts",
@@ -54,12 +54,12 @@
     "access": "public"
   },
   "optionalDependencies": {
-    "@ruvector/graph-transformer-linux-x64-gnu": "2.0.4-patch.75",
-    "@ruvector/graph-transformer-linux-x64-musl": "2.0.4-patch.75",
-    "@ruvector/graph-transformer-linux-arm64-gnu": "2.0.4-patch.75",
-    "@ruvector/graph-transformer-linux-arm64-musl": "2.0.4-patch.75",
-    "@ruvector/graph-transformer-darwin-x64": "2.0.4-patch.75",
-    "@ruvector/graph-transformer-darwin-arm64": "2.0.4-patch.75",
-    "@ruvector/graph-transformer-win32-x64-msvc": "2.0.4-patch.75"
+    "@ruvector/graph-transformer-linux-x64-gnu": "2.0.4-patch.76",
+    "@ruvector/graph-transformer-linux-x64-musl": "2.0.4-patch.76",
+    "@ruvector/graph-transformer-linux-arm64-gnu": "2.0.4-patch.76",
+    "@ruvector/graph-transformer-linux-arm64-musl": "2.0.4-patch.76",
+    "@ruvector/graph-transformer-darwin-x64": "2.0.4-patch.76",
+    "@ruvector/graph-transformer-darwin-arm64": "2.0.4-patch.76",
+    "@ruvector/graph-transformer-win32-x64-msvc": "2.0.4-patch.76"
   }
 }
