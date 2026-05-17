@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/agentic-integration",
-  "version": "1.0.0-patch.306",
+  "version": "1.0.0-patch.307",
   "description": "Distributed agent coordination for ruvector with claude-flow integration",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -34,7 +34,7 @@
   "author": "RuVector Team",
   "license": "MIT",
   "dependencies": {
-    "claude-flow": "3.7.0-alpha.11-patch.162",
+    "claude-flow": "3.7.0-alpha.11-patch.163",
     "events": "^3.3.0",
     "winston": "^3.11.0",
     "pino": "^8.17.0",
