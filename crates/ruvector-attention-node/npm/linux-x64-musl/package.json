@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/attention-linux-x64-musl",
-  "version": "0.1.0-patch.97",
+  "version": "0.1.0-patch.98",
   "os": [
     "linux"
   ],
