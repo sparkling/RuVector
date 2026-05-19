@@ -1,6 +1,6 @@
 {
   "name": "ruvector",
-  "version": "0.1.2-patch.710",
+  "version": "0.1.2-patch.711",
   "description": "Self-learning vector database for Node.js — hybrid search, Graph RAG, FlashAttention-3, HNSW, 50+ attention mechanisms",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -100,7 +100,7 @@
     "@ruvector/diskann": "0.1.0-patch.95",
     "@ruvector/pi-brain": "0.1.0-patch.96",
     "@ruvector/router": "0.1.30-patch.95",
-    "@ruvector/ruvllm": "2.5.5-patch.96"
+    "@ruvector/ruvllm": "2.5.5-patch.97"
   },
   "peerDependenciesMeta": {
     "@ruvector/pi-brain": {
