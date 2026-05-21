@@ -2,7 +2,14 @@ target
 Cargo.lock
 .cargo
 .github
-*.node
+# ADR-0150: ship the darwin-arm64 napi binary (the loader's local-file check
+# needs it); exclude only OTHER arches. A blanket `*.node` here shipped an
+# empty @ruvector/attention → "Cannot find module …attention-darwin-arm64".
+*.linux-*.node
+*.win32-*.node
+*.android-*.node
+*.darwin-x64*.node
+*.darwin-universal*.node
 *.so
 *.dylib
 *.dll
