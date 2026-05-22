@@ -5,6 +5,7 @@
     "sourceType": "module",
     "project": "./tsconfig.json"
   },
+  "ignorePatterns": ["**/*.d.ts", "dist/**", "node_modules/**"],
   "extends": [
     "eslint:recommended",
     "plugin:@typescript-eslint/recommended",

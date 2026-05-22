@@ -429,7 +429,7 @@ export function createExoticEngine(config?: ExoticConfig): ExoticEngine {
     ...config,
   };
 
-  let stats: ExoticStats = {
+  const stats: ExoticStats = {
     quantumOperations: 0,
     hyperbolicOperations: 0,
     topologicalOperations: 0,
@@ -545,12 +545,12 @@ export function createExoticEngine(config?: ExoticConfig): ExoticEngine {
     persistentHomology: (_data, _maxDimension = 2, _threshold = Infinity) => {
       stats.topologicalOperations++;
       // WASM call: ruvector_persistent_homology(data, maxDimension, threshold)
-      return [];
+      return [] as TopologicalFeature[];
     },
     bettiNumbers: (features, _threshold = 0) => {
       stats.topologicalOperations++;
       const maxDim = features.reduce((max, f) => Math.max(max, f.dimension), 0);
-      return new Array(maxDim + 1).fill(0);
+      return new Array<number>(maxDim + 1).fill(0);
     },
     persistenceDiagram: (features) => {
       stats.topologicalOperations++;
@@ -677,7 +677,7 @@ export function poincareToLorentz(x: Float32Array, c: number = 1): Float32Array 
   const result = new Float32Array(x.length + 1);
   result[0] = (1 + c * normSq) / denom; // Time component
   for (let i = 0; i < x.length; i++) {
-    result[i + 1] = 2 * Math.sqrt(c) * (x[i] as number) / denom;
+    result[i + 1] = 2 * Math.sqrt(c) * x[i] / denom;
   }
   return result;
 }

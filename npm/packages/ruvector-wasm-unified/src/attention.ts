@@ -378,7 +378,7 @@ export function listAttentionMechanisms(): AttentionMechanism[] {
  * @param iterations Number of iterations
  * @returns Benchmark results
  */
-export async function benchmarkAttention(
+export function benchmarkAttention(
   mechanism: AttentionMechanism,
   _inputSize: number,
   _iterations: number = 100
@@ -389,10 +389,10 @@ export async function benchmarkAttention(
   memoryPeakBytes: number;
 }> {
   // Placeholder for benchmark implementation
-  return {
+  return Promise.resolve({
     mechanism,
     avgTimeMs: 0,
     throughputOpsPerSec: 0,
     memoryPeakBytes: 0,
-  };
+  });
 }
