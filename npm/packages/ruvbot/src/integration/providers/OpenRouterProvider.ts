@@ -63,7 +63,7 @@ export type OpenRouterModel =
   | 'deepseek/deepseek-r1'
   | 'deepseek/deepseek-chat'
   // Other models
-  | string;
+  | (string & Record<never, never>);
 
 interface OpenRouterMessage {
   role: 'user' | 'assistant' | 'system';
