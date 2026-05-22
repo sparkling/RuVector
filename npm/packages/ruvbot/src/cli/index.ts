@@ -67,15 +67,15 @@ export function createCLI(): Command {
     .option('--debug', 'Enable debug logging')
     .option('--no-api', 'Disable API server')
     .option('--channel <channel>', 'Enable specific channel (slack, discord, telegram)')
-    .action(async (options) => {
+    .action(async (options: { port: string; config?: string; remote?: boolean; debug?: boolean; api?: boolean; channel?: string }) => {
       const spinner = ora('Starting RuvBot...').start();
 
       try {
-        let config;
+        let config: ReturnType<typeof ConfigManager.prototype.getConfig>;
         if (options.config) {
           const fs = await import('fs/promises');
           const configContent = await fs.readFile(options.config, 'utf-8');
-          config = JSON.parse(configContent);
+          config = JSON.parse(configContent) as ReturnType<typeof ConfigManager.prototype.getConfig>;
         } else {
           config = ConfigManager.fromEnv().getConfig();
         }
@@ -118,11 +118,11 @@ export function createCLI(): Command {
 
         process.on('SIGINT', shutdown);
         process.on('SIGTERM', shutdown);
-      } catch (error: any) {
+      } catch (error: unknown) {
         spinner.fail(chalk.red('Failed to start RuvBot'));
-        console.error(chalk.red(`\nError: ${error.message}`));
+        console.error(chalk.red(`\nError: ${error instanceof Error ? error.message : String(error)}`));
         if (options.debug) {
-          console.error(error.stack);
+          if (error instanceof Error) console.error(error.stack);
         }
         process.exit(1);
       }
