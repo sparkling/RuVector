@@ -135,7 +135,7 @@ export function createCLI(): Command {
     .option('-y, --yes', 'Skip prompts with defaults')
     .option('--wizard', 'Run interactive wizard')
     .option('--preset <preset>', 'Use preset: minimal, standard, full')
-    .action(async (options) => {
+    .action(async (options: { yes?: boolean; wizard?: boolean; preset?: string }) => {
       const spinner = ora('Initializing RuvBot...').start();
 
       try {
@@ -143,7 +143,7 @@ export function createCLI(): Command {
         const path = await import('path');
 
         // Determine config based on preset
-        let config;
+        let config: Record<string, unknown>;
         switch (options.preset) {
           case 'minimal':
             config = {
@@ -248,14 +248,21 @@ RUVBOT_LOG_LEVEL=info
     .option('--edit', 'Open config in editor')
     .option('--validate', 'Validate configuration')
     .option('--json', 'Output as JSON')
-    .action(async (options) => {
+    .action(async (options: { show?: boolean; edit?: boolean; validate?: boolean; json?: boolean }) => {
       try {
         const fs = await import('fs/promises');
 
         if (options.show || (!options.edit && !options.validate)) {
           try {
             const configContent = await fs.readFile('ruvbot.config.json', 'utf-8');
-            const config = JSON.parse(configContent);
+            const config = JSON.parse(configContent) as {
+              name?: string; port?: number;
+              storage?: { type?: string };
+              memory?: { dimensions?: number };
+              skills?: { enabled?: string[] };
+              security?: { enabled?: boolean };
+              plugins?: { enabled?: boolean };
+            };
 
             if (options.json) {
               console.log(JSON.stringify(config, null, 2));
@@ -264,9 +271,9 @@ RUVBOT_LOG_LEVEL=info
               console.log('─'.repeat(50));
               console.log(`Name:       ${chalk.cyan(config.name)}`);
               console.log(`Port:       ${chalk.cyan(config.port)}`);
-              console.log(`Storage:    ${chalk.cyan(config.storage?.type || 'sqlite')}`);
-              console.log(`Memory:     ${chalk.cyan(config.memory?.dimensions || 384)} dimensions`);
-              console.log(`Skills:     ${chalk.cyan((config.skills?.enabled || []).join(', '))}`);
+              console.log(`Storage:    ${chalk.cyan(config.storage?.type ?? 'sqlite')}`);
+              console.log(`Memory:     ${chalk.cyan(config.memory?.dimensions ?? 384)} dimensions`);
+              console.log(`Skills:     ${chalk.cyan((config.skills?.enabled ?? []).join(', '))}`);
               console.log(`Security:   ${config.security?.enabled ? chalk.green('ON') : chalk.red('OFF')}`);
               console.log(`Plugins:    ${config.plugins?.enabled ? chalk.green('ON') : chalk.red('OFF')}`);
               console.log('─'.repeat(50));
@@ -285,8 +292,8 @@ RUVBOT_LOG_LEVEL=info
 
             // Additional validation could be added here
             console.log(chalk.green('✓ All required fields present'));
-          } catch (error: any) {
-            console.log(chalk.red(`✗ Configuration error: ${error.message}`));
+          } catch (error: unknown) {
+            console.log(chalk.red(`✗ Configuration error: ${error instanceof Error ? error.message : String(error)}`));
             process.exit(1);
           }
         }
@@ -296,8 +303,8 @@ RUVBOT_LOG_LEVEL=info
           const editor = process.env.EDITOR || 'nano';
           execSync(`${editor} ruvbot.config.json`, { stdio: 'inherit' });
         }
-      } catch (error: any) {
-        console.error(chalk.red(`Config error: ${error.message}`));
+      } catch (error: unknown) {
+        console.error(chalk.red(`Config error: ${error instanceof Error ? error.message : String(error)}`));
         process.exit(1);
       }
     });
@@ -308,8 +315,8 @@ RUVBOT_LOG_LEVEL=info
     .description('Show bot status and health')
     .option('-w, --watch', 'Watch mode (refresh every 2s)')
     .option('--json', 'Output as JSON')
-    .action(async (options) => {
-      const showStatus = async () => {
+    .action(async (options: { watch?: boolean; json?: boolean }) => {
+      const showStatus = (): void => {
         try {
           const config = ConfigManager.fromEnv().getConfig();
 
