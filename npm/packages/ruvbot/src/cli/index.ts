@@ -116,8 +116,8 @@ export function createCLI(): Command {
           }
         };
 
-        process.on('SIGINT', shutdown);
-        process.on('SIGTERM', shutdown);
+        process.on('SIGINT', () => { void shutdown(); });
+        process.on('SIGTERM', () => { void shutdown(); });
       } catch (error: unknown) {
         spinner.fail(chalk.red('Failed to start RuvBot'));
         console.error(chalk.red(`\nError: ${error instanceof Error ? error.message : String(error)}`));
@@ -140,7 +140,6 @@ export function createCLI(): Command {
 
       try {
         const fs = await import('fs/promises');
-        const path = await import('path');
 
         // Determine config based on preset
         let config: Record<string, unknown>;
@@ -233,9 +232,9 @@ RUVBOT_LOG_LEVEL=info
         console.log(chalk.cyan('     ruvbot doctor'));
         console.log('\n  3. Start the bot:');
         console.log(chalk.cyan('     ruvbot start'));
-      } catch (error: any) {
+      } catch (error: unknown) {
         spinner.fail(chalk.red('Failed to initialize'));
-        console.error(error.message);
+        console.error(error instanceof Error ? error.message : String(error));
         process.exit(1);
       }
     });
@@ -350,12 +349,12 @@ RUVBOT_LOG_LEVEL=info
           console.log(`Memory:      ${formatBytes(status.memory.heapUsed)} / ${formatBytes(status.memory.heapTotal)}`);
           console.log(`Storage:     ${chalk.cyan(status.config.storage)}`);
           console.log('─'.repeat(40));
-        } catch (error: any) {
-          console.error(chalk.red(`Status error: ${error.message}`));
+        } catch (error: unknown) {
+          console.error(chalk.red(`Status error: ${error instanceof Error ? error.message : String(error)}`));
         }
       };
 
-      await showStatus();
+      showStatus();
 
       if (options.watch && !options.json) {
         console.log(chalk.gray('\nRefreshing every 2s... (Ctrl+C to stop)'));
@@ -370,7 +369,7 @@ RUVBOT_LOG_LEVEL=info
     .command('list')
     .description('List available skills')
     .option('--json', 'Output as JSON')
-    .action((options) => {
+    .action((options: { json?: boolean }) => {
       const builtinSkills = [
         { name: 'search', description: 'Semantic search in memory', enabled: true },
         { name: 'summarize', description: 'Summarize text content', enabled: true },

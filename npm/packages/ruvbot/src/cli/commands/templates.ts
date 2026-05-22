@@ -184,7 +184,7 @@ interface DeploymentCommands {
 
 function generateDeploymentCommands(
   template: Template,
-  options: DeployOptions
+  _options: DeployOptions
 ): DeploymentCommands {
   // Swarm initialization
   const swarmInit = `npx @claude-flow/cli@latest swarm init --topology ${template.config.topology} --max-agents ${template.config.maxAgents}${template.config.consensus ? ` --consensus ${template.config.consensus}` : ''}`;
