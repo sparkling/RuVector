@@ -67,7 +67,11 @@
   "peerDependencies": {
     "agentic-robotics": "^1.0.0",
     "midstreamer": "^1.0.0",
+<<<<<<< HEAD
     "ruvector": "0.1.2-patch.763"
+=======
+    "ruvector": "^0.2.0"
+>>>>>>> e3d8ff8e6 (fix(npm): update stale ruvector peer deps and fix TS syntax error (#492))
   },
   "peerDependenciesMeta": {
     "midstreamer": {
