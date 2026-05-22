@@ -85,10 +85,11 @@ jobs:
     # iter 230) both hit the cap and got cancelled mid-test. Excluding
     # the iter-219 hailo crates from the catch-all (iter 230) was a
     # necessary but not sufficient fix — the shard was already at the
-    # ragged edge. 180min gives ~30min headroom on the typical 150min
-    # run; if a shard's natural duration drifts further we should split
-    # crates out into a new sibling shard rather than push this higher.
-    timeout-minutes: 180
+    # ragged edge. Iter 232+ — natural duration drifted to 155–165 min
+    # (ci/supply-chain-guards branch), hitting the 180-min cap. Bumped
+    # 180→240 to restore headroom. The right long-term fix is to split
+    # heavy crates out into a new sibling shard.
+    timeout-minutes: 240
     strategy:
       fail-fast: false
       matrix:
