@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/tiny-dancer-win32-x64-msvc",
-  "version": "0.1.15-patch.104",
+  "version": "0.1.15-patch.105",
   "description": "Windows x64 native bindings for @ruvector/tiny-dancer",
   "main": "ruvector-tiny-dancer.win32-x64-msvc.node",
   "files": [

@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/cnn",
-  "version": "0.1.0-patch.104",
+  "version": "0.1.0-patch.105",
   "description": "CNN feature extraction for image embeddings - SIMD-optimized, pure Rust/WASM",
   "main": "index.js",
   "module": "index.mjs",
