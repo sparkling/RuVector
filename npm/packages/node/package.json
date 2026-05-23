@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/node",
-  "version": "0.1.23-patch.178",
+  "version": "0.1.23-patch.179",
   "description": "Unified Ruvector package - High-performance vector database with GNN capabilities for Node.js",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
@@ -29,7 +29,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@ruvector/core": "0.1.31-patch.178",
+    "@ruvector/core": "0.1.31-patch.179",
     "@ruvector/gnn": "0.1.25-patch.133"
   },
   "devDependencies": {
