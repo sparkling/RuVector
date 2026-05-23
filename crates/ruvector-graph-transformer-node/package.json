@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/graph-transformer",
-  "version": "2.0.4-patch.124",
+  "version": "2.0.4-patch.125",
   "description": "Proof-gated graph transformer with 8 verified modules — physics, biological, manifold, temporal, economic graph intelligence via NAPI-RS",
   "main": "index.js",
   "types": "index.d.ts",
