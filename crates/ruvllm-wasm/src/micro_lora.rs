@@ -443,6 +443,39 @@ pub struct MicroLoraWasm {
     adapter: LoraAdapterInternal,
     samples_seen: usize,
     quality_sum: f32,
+    /// Optional EWC++ protection (ADR-0231 wave 2). Present whenever the
+    /// adapter is constructed so `adapt_constrained` can route through it
+    /// without re-checking. Stays unused by the existing `adapt()` path so
+    /// pre-existing callers see zero behavioral change.
+    ewc: Option<ewc_core::EwcPlusPlus>,
+}
+
+/// Compute the EWC `param_count` for a given LoRA shape.
+///
+/// Mirrors the gradient vector layout produced by
+/// [`LoraAdapterInternal::accumulate_gradient`]: `grad_a` (length
+/// `in_features * rank`) concatenated with `grad_b` (length
+/// `rank * out_features`).
+///
+/// Per ADR-0231 gap #5 the WASM-tier sizing differs from the sona-tier
+/// (`hidden_dim * micro_lora_rank * 2`). Documenting the formula here keeps
+/// the EWC instance lock-step with the underlying buffers and prevents the
+/// silent no-op trap (Q-1) where `EwcPlusPlus::apply_constraints` returns the
+/// gradient unchanged on dim mismatch.
+fn ewc_param_count(in_features: usize, out_features: usize, rank: usize) -> usize {
+    in_features * rank + rank * out_features
+}
+
+/// Build an `EwcConfig` sized for a given LoRA shape. Centralised so the
+/// constructor and `reset()` stay in sync (ADR-0231 gap #3 requires reset to
+/// reinitialise EWC).
+fn build_ewc_config(in_features: usize, out_features: usize, rank: usize) -> ewc_core::EwcConfig {
+    ewc_core::EwcConfig {
+        param_count: ewc_param_count(in_features, out_features, rank),
+        initial_lambda: 1000.0,
+        max_tasks: 10,
+        ..Default::default()
+    }
 }
 
 #[wasm_bindgen]
@@ -457,10 +490,20 @@ impl MicroLoraWasm {
             config.alpha,
         );
 
+        // Eager init: keeps reset() symmetric and avoids a per-call branch in
+        // `adapt_constrained`. The Option wrapper is kept so future zero-cost
+        // construction paths can drop it.
+        let ewc = Some(ewc_core::EwcPlusPlus::new(build_ewc_config(
+            config.in_features,
+            config.out_features,
+            config.rank,
+        )));
+
         Self {
             adapter,
             samples_seen: 0,
             quality_sum: 0.0,
+            ewc,
         }
     }
 
@@ -504,6 +547,113 @@ impl MicroLoraWasm {
         Ok(())
     }
 
+    /// Adapt the LoRA weights with EWC++ catastrophic-forgetting protection
+    /// (ADR-0231 wave 2).
+    ///
+    /// Computes the per-call gradient delta inline (mirroring
+    /// [`LoraAdapterInternal::accumulate_gradient`]), routes it through
+    /// [`ewc_core::EwcPlusPlus::apply_constraints`] to dampen updates on
+    /// parameters the running Fisher estimate marks as important, then
+    /// accumulates the constrained delta into `grad_a`/`grad_b` and updates
+    /// the Fisher estimate so subsequent calls remember this step.
+    ///
+    /// The existing `adapt()` path is left unchanged; callers opt in by
+    /// invoking this method instead. No task boundary detection is performed
+    /// — gap #2 (ADR-0231): no boundary detection on per-call path in v1.
+    #[wasm_bindgen(js_name = adaptConstrained)]
+    pub fn adapt_constrained(
+        &mut self,
+        input: &[f32],
+        feedback: &AdaptFeedbackWasm,
+    ) -> Result<(), JsValue> {
+        if input.len() != self.adapter.in_features {
+            return Err(JsValue::from_str(&format!(
+                "Input size mismatch: expected {}, got {}",
+                self.adapter.in_features,
+                input.len()
+            )));
+        }
+
+        let in_features = self.adapter.in_features;
+        let out_features = self.adapter.out_features;
+        let rank = self.adapter.rank;
+        let scaling = self.adapter.scaling;
+        let quality = feedback.quality;
+
+        // Compute intermediate activation: x @ A (in_features -> rank).
+        let mut intermediate = vec![0.0f32; rank];
+        for r in 0..rank {
+            let mut sum = 0.0f32;
+            for i in 0..in_features {
+                sum += input[i] * self.adapter.lora_a[i * rank + r];
+            }
+            intermediate[r] = sum;
+        }
+
+        // Reward mapping matches accumulate_gradient: quality in [0,1] -> [-1,1].
+        let reward = (quality - 0.5) * 2.0;
+
+        // Build the per-call gradient delta vector. Layout:
+        //   [0 .. in_features*rank)                 = grad_a delta
+        //   [in_features*rank .. param_count)       = grad_b delta
+        // param_count = ewc_param_count(in, out, rank) by construction.
+        let a_len = in_features * rank;
+        let b_len = rank * out_features;
+        let mut gradient = vec![0.0f32; a_len + b_len];
+
+        // grad_a delta: input outer reward (mirrors accumulate_gradient).
+        for i in 0..in_features {
+            for r in 0..rank {
+                gradient[i * rank + r] = input[i] * reward * scaling * 0.01;
+            }
+        }
+        // grad_b delta: intermediate outer reward.
+        for r in 0..rank {
+            for o in 0..out_features {
+                gradient[a_len + r * out_features + o] =
+                    intermediate[r] * reward * scaling * 0.01;
+            }
+        }
+
+        // Route through EWC++. `expect` is intentional — the constructor
+        // always initialises `ewc`, so a None here is a programmer error
+        // worth failing loud on.
+        let ewc = self.ewc.as_mut().expect("ewc initialized in constructor");
+        let constrained = ewc.apply_constraints(&gradient);
+
+        // Defensive guard against the silent no-op trap (Q-1). If the EWC
+        // layer returned a vector of unexpected length the underlying
+        // gradient sizing has drifted from `ewc_param_count` and we should
+        // surface that loudly rather than silently corrupt the accumulators.
+        if constrained.len() != gradient.len() {
+            return Err(JsValue::from_str(&format!(
+                "EWC apply_constraints returned wrong length: expected {}, got {}",
+                gradient.len(),
+                constrained.len()
+            )));
+        }
+
+        // Add the constrained delta to the gradient accumulators.
+        for i in 0..a_len {
+            self.adapter.grad_a[i] += constrained[i];
+        }
+        for j in 0..b_len {
+            self.adapter.grad_b[j] += constrained[a_len + j];
+        }
+        self.adapter.grad_count += 1;
+
+        // Update Fisher estimate with the (post-constraint) gradient so the
+        // running importance picture stays calibrated.
+        ewc.update_fisher(&constrained);
+
+        // gap #2 (ADR-0231): no boundary detection on per-call path in v1.
+
+        self.samples_seen += 1;
+        self.quality_sum += feedback.quality;
+
+        Ok(())
+    }
+
     /// Apply accumulated gradients with the given learning rate.
     ///
     /// Should be called after one or more `adapt()` calls to update the weights.
@@ -514,12 +664,20 @@ impl MicroLoraWasm {
 
     /// Reset the adapter to its initial state.
     ///
-    /// Clears B weights and all statistics.
+    /// Clears B weights, all statistics, and reinitialises the EWC++ instance
+    /// (ADR-0231 gap #3: reset clears Fisher, task_memory, and lambda).
     #[wasm_bindgen]
     pub fn reset(&mut self) {
         self.adapter.reset();
         self.samples_seen = 0;
         self.quality_sum = 0.0;
+        // Reinitialise EWC with the same shape so per-call protection starts
+        // from a clean Fisher / task_memory like a freshly-constructed adapter.
+        self.ewc = Some(ewc_core::EwcPlusPlus::new(build_ewc_config(
+            self.adapter.in_features,
+            self.adapter.out_features,
+            self.adapter.rank,
+        )));
     }
 
     /// Get adapter statistics.
@@ -570,10 +728,20 @@ impl MicroLoraWasm {
         let state: SerializedState = serde_json::from_str(json)
             .map_err(|e| JsValue::from_str(&format!("Deserialization error: {}", e)))?;
 
+        // EWC state is not persisted in v1 (ADR-0231 wave 2 scope) — restored
+        // adapters start with a fresh Fisher / task_memory sized to match the
+        // deserialized LoRA shape.
+        let ewc = Some(ewc_core::EwcPlusPlus::new(build_ewc_config(
+            state.adapter.in_features,
+            state.adapter.out_features,
+            state.adapter.rank,
+        )));
+
         Ok(MicroLoraWasm {
             adapter: state.adapter,
             samples_seen: state.samples_seen,
             quality_sum: state.quality_sum,
+            ewc,
         })
     }
 
@@ -731,5 +899,141 @@ mod tests {
         let adapter = MicroLoraWasm::new(&config);
         let stats = adapter.stats();
         assert_eq!(stats.memory_bytes(), 12288);
+    }
+
+    /// Helper: drive N adapt calls with a deterministic non-zero input then
+    /// apply gradients. Returns the post-update weights for comparison.
+    fn run_n_adapts(
+        adapter: &mut MicroLoraWasm,
+        n: usize,
+        use_constrained: bool,
+    ) -> (Vec<f32>, Vec<f32>) {
+        // Build a deterministic non-zero input that varies per index so the
+        // gradient delta is structured (not a uniform vector EWC could happen
+        // to leave unchanged by coincidence).
+        let in_features = adapter.adapter.in_features;
+        let input: Vec<f32> = (0..in_features)
+            .map(|i| 0.1 + (i as f32) * 0.001)
+            .collect();
+        let feedback = AdaptFeedbackWasm::new(0.9);
+
+        for _ in 0..n {
+            if use_constrained {
+                adapter
+                    .adapt_constrained(&input, &feedback)
+                    .expect("adapt_constrained ok");
+            } else {
+                adapter.adapt(&input, &feedback).expect("adapt ok");
+            }
+            // Apply each step so weights actually move (matches how
+            // ADR-0231's per-call path runs in production).
+            adapter.apply_updates(0.01);
+        }
+
+        (adapter.adapter.lora_a.clone(), adapter.adapter.lora_b.clone())
+    }
+
+    /// ADR-0231 wave 2: EWC++ must actually mutate the gradient on the per-call
+    /// path. Guards Q-1: a dim mismatch would make `apply_constraints` a no-op
+    /// and the two runs would converge to identical weights.
+    #[test]
+    fn test_adapt_constrained_differs_from_raw_adapt() {
+        let mut config = MicroLoraConfigWasm::new();
+        config.set_in_features(32);
+        config.set_out_features(32);
+        config.set_rank(2);
+
+        let mut raw_adapter = MicroLoraWasm::new(&config);
+        let mut ewc_adapter = MicroLoraWasm::new(&config);
+
+        // Sanity: both start identical.
+        assert_eq!(raw_adapter.adapter.lora_a, ewc_adapter.adapter.lora_a);
+        assert_eq!(raw_adapter.adapter.lora_b, ewc_adapter.adapter.lora_b);
+
+        let (raw_a, raw_b) = run_n_adapts(&mut raw_adapter, 50, false);
+        let (ewc_a, ewc_b) = run_n_adapts(&mut ewc_adapter, 50, true);
+
+        // Both runs should have moved the weights *somewhere*.
+        let baseline = MicroLoraWasm::new(&config);
+        let raw_moved = raw_a != baseline.adapter.lora_a || raw_b != baseline.adapter.lora_b;
+        let ewc_moved = ewc_a != baseline.adapter.lora_a || ewc_b != baseline.adapter.lora_b;
+        assert!(raw_moved, "raw adapt() should have moved weights");
+        assert!(ewc_moved, "adapt_constrained() should have moved weights");
+
+        // Core assertion: EWC must change the trajectory. If the constrained
+        // gradient ever differs from the raw gradient at least one weight will
+        // end up in a different place. Iff EWC silently no-oped (the Q-1 trap)
+        // the two vectors would match exactly.
+        let any_a_diff = raw_a.iter().zip(ewc_a.iter()).any(|(a, b)| a != b);
+        let any_b_diff = raw_b.iter().zip(ewc_b.iter()).any(|(a, b)| a != b);
+        assert!(
+            any_a_diff || any_b_diff,
+            "adapt_constrained produced identical weights to adapt — EWC silently no-oped"
+        );
+    }
+
+    /// ADR-0231 gap #3: reset() must reinitialise EWC so Fisher information
+    /// does not bleed across reset boundaries.
+    ///
+    /// Note: `LoraAdapterInternal::reset()` zeros `lora_b` but preserves
+    /// `lora_a` (standard LoRA convention — only the down-projection survives
+    /// reset). We therefore can't compare absolute weights between a fresh
+    /// adapter and a reset adapter that has had its `lora_a` mutated by prior
+    /// adapts. Instead we compare the *per-call gradient delta* produced by
+    /// one constrained adapt: if Fisher was actually cleared, the constraint
+    /// factors collapse to "no accumulated importance" and the delta added to
+    /// `grad_a`/`grad_b` matches what a fresh adapter would compute for the
+    /// same input.
+    #[test]
+    fn test_reset_clears_ewc_fisher() {
+        let mut config = MicroLoraConfigWasm::new();
+        config.set_in_features(32);
+        config.set_out_features(32);
+        config.set_rank(2);
+
+        let input: Vec<f32> = (0..32).map(|i| 0.1 + (i as f32) * 0.001).collect();
+        let feedback = AdaptFeedbackWasm::new(0.9);
+
+        // Reference: fresh adapter, one constrained adapt, capture grad_a /
+        // grad_b before they get applied. This is the "no Fisher" delta.
+        let mut reference = MicroLoraWasm::new(&config);
+        reference
+            .adapt_constrained(&input, &feedback)
+            .expect("ref adapt ok");
+        let reference_grad_a = reference.adapter.grad_a.clone();
+        let reference_grad_b = reference.adapter.grad_b.clone();
+
+        // Subject: build up Fisher with 50 adapts, then reset, then take one
+        // constrained adapt against the SAME `lora_a` snapshot as reference.
+        // Force the subject's lora_a back to the fresh adapter's state so the
+        // intermediate computation matches reference's exactly — what we're
+        // testing is the EWC contribution, not the LoRA forward pass.
+        let mut subject = MicroLoraWasm::new(&config);
+        for _ in 0..50 {
+            subject
+                .adapt_constrained(&input, &feedback)
+                .expect("subject adapt ok");
+            subject.apply_updates(0.01);
+        }
+        subject.reset();
+        // Restore lora_a to a freshly-initialised baseline so the only
+        // remaining difference between reference and subject is whether EWC
+        // Fisher leaked across reset.
+        let fresh = MicroLoraWasm::new(&config);
+        subject.adapter.lora_a.copy_from_slice(&fresh.adapter.lora_a);
+        subject.adapter.lora_b.copy_from_slice(&fresh.adapter.lora_b);
+
+        subject
+            .adapt_constrained(&input, &feedback)
+            .expect("post-reset adapt ok");
+
+        assert_eq!(
+            subject.adapter.grad_a, reference_grad_a,
+            "grad_a delta diverged from fresh-adapter reference — Fisher survived reset"
+        );
+        assert_eq!(
+            subject.adapter.grad_b, reference_grad_b,
+            "grad_b delta diverged from fresh-adapter reference — Fisher survived reset"
+        );
     }
 }
