@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/attention-linux-arm64-gnu",
-  "version": "0.1.1-patch.114",
+  "version": "0.1.1-patch.115",
   "os": [
     "linux"
   ],
