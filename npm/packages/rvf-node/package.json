@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/rvf-node",
-  "version": "0.1.7-patch.143",
+  "version": "0.1.7-patch.144",
   "description": "RuVector Format Node.js native bindings",
   "main": "index.js",
   "types": "index.d.ts",
@@ -35,10 +35,10 @@
     "access": "public"
   },
   "optionalDependencies": {
-    "@ruvector/rvf-node-linux-x64-gnu": "0.1.7-patch.122",
-    "@ruvector/rvf-node-darwin-x64": "0.1.7-patch.122",
-    "@ruvector/rvf-node-darwin-arm64": "0.1.7-patch.119",
-    "@ruvector/rvf-node-win32-x64-msvc": "0.1.7-patch.137",
-    "@ruvector/rvf-node-linux-arm64-gnu": "0.1.7-patch.122"
+    "@ruvector/rvf-node-linux-x64-gnu": "0.1.7-patch.123",
+    "@ruvector/rvf-node-darwin-x64": "0.1.7-patch.123",
+    "@ruvector/rvf-node-darwin-arm64": "0.1.7-patch.120",
+    "@ruvector/rvf-node-win32-x64-msvc": "0.1.7-patch.138",
+    "@ruvector/rvf-node-linux-arm64-gnu": "0.1.7-patch.123"
   }
 }
