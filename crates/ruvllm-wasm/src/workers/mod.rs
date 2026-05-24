@@ -457,7 +457,12 @@ impl Drop for ParallelInference {
     }
 }
 
-#[cfg(test)]
+// Both tests instantiate ParallelInference. Its Drop impl calls
+// self.terminate() -> crate::utils::log() -> web_sys::console::log_1(),
+// which panics on non-wasm32 ("function not implemented on non-wasm32
+// targets") during test cleanup and aborts the test binary. Gate the
+// whole module so coverage runs under wasm-pack-test only.
+#[cfg(all(test, target_arch = "wasm32"))]
 mod tests {
     use super::*;
 

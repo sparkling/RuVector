@@ -346,7 +346,11 @@ pub fn parallel_inference_unavailable_reason() -> String {
     String::new()
 }
 
-#[cfg(test)]
+// All feature-detect tests invoke js_sys::global() / SharedArrayBuffer /
+// web_sys::window() probes, which panic on non-wasm32 targets
+// ("cannot access imported statics on non-wasm targets"). Gate the entire
+// test module so coverage runs under wasm-pack-test only.
+#[cfg(all(test, target_arch = "wasm32"))]
 mod tests {
     use super::*;
 
