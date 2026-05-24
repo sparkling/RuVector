@@ -1,0 +1,12 @@
+[package]
+name = "ewc-core"
+version = "0.1.0"
+edition = "2021"
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Shared EWC++ (Elastic Weight Consolidation) core: Fisher-information catastrophic-forgetting protection. Extracted from crates/sona per ADR-0231 to enable sharing with crates/ruvllm-wasm."
+
+[dependencies]
+serde = { workspace = true }
