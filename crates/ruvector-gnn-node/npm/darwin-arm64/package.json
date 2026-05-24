@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/gnn-darwin-arm64",
-  "version": "0.1.25-patch.115",
+  "version": "0.1.25-patch.116",
   "os": [
     "darwin"
   ],
