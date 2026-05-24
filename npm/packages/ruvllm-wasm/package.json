@@ -1,11 +1,10 @@
 {
   "name": "ruvllm-wasm",
-  "type": "module",
   "collaborators": [
     "Ruvector Team"
   ],
   "description": "WASM bindings for RuvLLM - browser-compatible LLM inference runtime with WebGPU acceleration",
-  "version": "2.0.2",
+  "version": "2.1.0",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -18,9 +17,6 @@
   ],
   "main": "ruvllm_wasm.js",
   "types": "ruvllm_wasm.d.ts",
-  "sideEffects": [
-    "./snippets/*"
-  ],
   "keywords": [
     "wasm",
     "llm",
