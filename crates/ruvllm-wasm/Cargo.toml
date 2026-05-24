@@ -119,7 +119,10 @@ needless_pass_by_value = "allow"
 manual_div_ceil = "allow"
 manual_is_multiple_of = "allow"
 manual_range_contains = "allow"
-manual_clamp = "allow"
+# manual_clamp re-enabled per ADR-0237 §Decision Outcome Option C:
+# regression guard against the `x.max(N).min(M)` silent-rewrite pattern
+# the 4 sona_instant.rs setters previously had. Belt-and-braces only —
+# per-site `Result<(), JsValue>` fail-loud is load-bearing.
 manual_checked_ops = "allow"
 manual_let_else = "allow"
 manual_memcpy = "allow"

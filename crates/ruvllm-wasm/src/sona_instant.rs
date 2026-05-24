@@ -61,6 +61,43 @@ use std::collections::VecDeque;
 use wasm_bindgen::prelude::*;
 
 // ============================================================================
+// Validation helpers (ADR-0237)
+// ============================================================================
+//
+// The validators below return `Result<(), String>` so they are testable on
+// native (`cargo test`). Setters convert the `String` to `JsValue` at the
+// wasm-bindgen boundary — `JsValue::from_str` panics on non-wasm32 targets,
+// so we delay its construction until the wasm-callable setter actually
+// crosses the JS boundary.
+
+/// Reject `f32` values outside `[0.0, 1.0]` or non-finite (NaN).
+///
+/// Shared by `set_learning_rate`, `set_ema_decay`, and `set_ewc_lambda` —
+/// the three unit-interval setters covered by ADR-0237. `is_finite()`
+/// catches NaN at the boundary (one tributary to F-06-008's
+/// `hnsw_router.rs` `partial_cmp().unwrap()` NaN panics).
+fn validate_unit_interval(setter: &str, value: f32) -> Result<(), String> {
+    if !value.is_finite() || value < 0.0 || value > 1.0 {
+        return Err(format!(
+            "{}: value {} out of range [0.0, 1.0] (ADR-0237)",
+            setter, value
+        ));
+    }
+    Ok(())
+}
+
+/// Reject `usize` values outside `[1, 4]` (MicroLoRA rank range).
+fn validate_micro_lora_rank(value: usize) -> Result<(), String> {
+    if value < 1 || value > 4 {
+        return Err(format!(
+            "set_micro_lora_rank: value {} out of range [1, 4] (ADR-0237)",
+            value
+        ));
+    }
+    Ok(())
+}
+
+// ============================================================================
 // Configuration
 // ============================================================================
 
@@ -126,9 +163,16 @@ impl SonaConfigWasm {
     }
 
     /// Set micro-LoRA rank
+    ///
+    /// Returns `Err` if `value` is outside `[1, 4]` (rank=0 is meaningless;
+    /// MicroLoRA tops out at rank-4 in WASM).
+    ///
+    /// ADR-0237: fork diverges from upstream silent clamp
     #[wasm_bindgen(setter, js_name = microLoraRank)]
-    pub fn set_micro_lora_rank(&mut self, value: usize) {
-        self.micro_lora_rank = value.max(1).min(4); // Clamp 1-4
+    pub fn set_micro_lora_rank(&mut self, value: usize) -> Result<(), JsValue> {
+        validate_micro_lora_rank(value).map_err(|e| JsValue::from_str(&e))?;
+        self.micro_lora_rank = value;
+        Ok(())
     }
 
     /// Get learning rate
@@ -138,9 +182,16 @@ impl SonaConfigWasm {
     }
 
     /// Set learning rate
+    ///
+    /// Returns `Err` if `value` is outside `[0.0, 1.0]` or non-finite (NaN).
+    ///
+    /// ADR-0237: fork diverges from upstream silent clamp
     #[wasm_bindgen(setter, js_name = learningRate)]
-    pub fn set_learning_rate(&mut self, value: f32) {
-        self.learning_rate = value.max(0.0).min(1.0);
+    pub fn set_learning_rate(&mut self, value: f32) -> Result<(), JsValue> {
+        validate_unit_interval("set_learning_rate", value)
+            .map_err(|e| JsValue::from_str(&e))?;
+        self.learning_rate = value;
+        Ok(())
     }
 
     /// Get EMA decay
@@ -150,9 +201,16 @@ impl SonaConfigWasm {
     }
 
     /// Set EMA decay
+    ///
+    /// Returns `Err` if `value` is outside `[0.0, 1.0]` or non-finite (NaN).
+    ///
+    /// ADR-0237: fork diverges from upstream silent clamp
     #[wasm_bindgen(setter, js_name = emaDecay)]
-    pub fn set_ema_decay(&mut self, value: f32) {
-        self.ema_decay = value.max(0.0).min(1.0);
+    pub fn set_ema_decay(&mut self, value: f32) -> Result<(), JsValue> {
+        validate_unit_interval("set_ema_decay", value)
+            .map_err(|e| JsValue::from_str(&e))?;
+        self.ema_decay = value;
+        Ok(())
     }
 
     /// Get pattern capacity
@@ -162,6 +220,11 @@ impl SonaConfigWasm {
     }
 
     /// Set pattern capacity
+    ///
+    /// Keeps the documented WASM ceiling (`<= 1000`); ADR-0231 wave A9
+    /// removed the lower `.max(10)` clamp so user input below 10 is honored
+    /// as-is. (Excluded from ADR-0237's fail-loud universalization because
+    /// the only bound is a ceiling, not a range.)
     #[wasm_bindgen(setter, js_name = patternCapacity)]
     pub fn set_pattern_capacity(&mut self, value: usize) {
         self.pattern_capacity = value.min(1000);
@@ -174,9 +237,16 @@ impl SonaConfigWasm {
     }
 
     /// Set EWC lambda
+    ///
+    /// Returns `Err` if `value` is outside `[0.0, 1.0]` or non-finite (NaN).
+    ///
+    /// ADR-0237: fork diverges from upstream silent clamp
     #[wasm_bindgen(setter, js_name = ewcLambda)]
-    pub fn set_ewc_lambda(&mut self, value: f32) {
-        self.ewc_lambda = value.max(0.0).min(1.0);
+    pub fn set_ewc_lambda(&mut self, value: f32) -> Result<(), JsValue> {
+        validate_unit_interval("set_ewc_lambda", value)
+            .map_err(|e| JsValue::from_str(&e))?;
+        self.ewc_lambda = value;
+        Ok(())
     }
 
     /// Convert to JSON
@@ -672,14 +742,68 @@ mod tests {
         assert!((config.learning_rate - 0.01).abs() < 0.001);
     }
 
-    #[test]
-    fn test_config_setters() {
-        let mut config = SonaConfigWasm::new();
-        config.set_learning_rate(0.05);
-        assert!((config.learning_rate() - 0.05).abs() < 0.001);
+    // ADR-0237: fail-loud setters on out-of-range numeric config.
+    //
+    // Tests below exercise the native-side validators directly because
+    // `JsValue::from_str` (called inside the wasm-bindgen setters when
+    // building the `Err`) panics on non-wasm32 targets. The setter wraps
+    // the same validator at the wasm boundary; behavioural parity is
+    // covered by the JS-side wrapper tests + the wasm-bindgen-test browser
+    // suite. The contract under test here is the predicate itself.
+    //
+    // Wave A9 precedent: pattern_capacity below 10 is honored as-is
+    // (ceiling-only bound; no fail-loud surface).
 
-        config.set_micro_lora_rank(2);
-        assert_eq!(config.micro_lora_rank(), 2);
+    #[test]
+    fn test_set_learning_rate_out_of_range_high() {
+        assert!(validate_unit_interval("set_learning_rate", 2.0).is_err());
+    }
+
+    #[test]
+    fn test_set_learning_rate_nan() {
+        assert!(validate_unit_interval("set_learning_rate", f32::NAN).is_err());
+    }
+
+    #[test]
+    fn test_set_micro_lora_rank_zero() {
+        assert!(validate_micro_lora_rank(0).is_err());
+    }
+
+    #[test]
+    fn test_set_micro_lora_rank_too_high() {
+        assert!(validate_micro_lora_rank(5).is_err());
+    }
+
+    #[test]
+    fn test_set_pattern_capacity_low_value_succeeds() {
+        // A9 precedent guard: pattern_capacity is ceiling-only, so a low
+        // value like 5 must NOT fail (this is the wave A9 disposition,
+        // deliberately excluded from ADR-0237's range-bounded fail-loud).
+        // `set_pattern_capacity` remains infallible — no validator wraps it.
+        let mut config = SonaConfigWasm::new();
+        config.set_pattern_capacity(5);
+        assert_eq!(config.pattern_capacity(), 5);
+    }
+
+    #[test]
+    fn test_set_ema_decay_negative() {
+        assert!(validate_unit_interval("set_ema_decay", -0.1).is_err());
+    }
+
+    #[test]
+    fn test_validate_unit_interval_accepts_endpoints() {
+        // 0.0 and 1.0 are inclusive — must succeed.
+        assert!(validate_unit_interval("test", 0.0).is_ok());
+        assert!(validate_unit_interval("test", 1.0).is_ok());
+        assert!(validate_unit_interval("test", 0.5).is_ok());
+    }
+
+    #[test]
+    fn test_validate_micro_lora_rank_accepts_bounds() {
+        // 1 and 4 are inclusive — must succeed.
+        assert!(validate_micro_lora_rank(1).is_ok());
+        assert!(validate_micro_lora_rank(4).is_ok());
+        assert!(validate_micro_lora_rank(2).is_ok());
     }
 
     #[test]
