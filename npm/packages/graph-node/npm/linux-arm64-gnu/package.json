@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/graph-node-linux-arm64-gnu",
-  "version": "0.1.26-patch.113",
+  "version": "0.1.26-patch.114",
   "os": [
     "linux"
   ],

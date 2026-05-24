@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/edge-net",
-  "version": "0.1.1-patch.113",
+  "version": "0.1.1-patch.114",
   "type": "module",
   "description": "Distributed compute intelligence network - contribute browser compute, earn credits. Features Time Crystal coordination, Neural DAG attention, and P2P swarm intelligence.",
   "main": "ruvector_edge_net.js",

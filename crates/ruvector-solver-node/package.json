@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/solver",
-  "version": "0.1.0-patch.119",
+  "version": "0.1.0-patch.120",
   "description": "Sublinear-time sparse linear solver for Node.js via NAPI-RS",
   "main": "index.js",
   "types": "index.d.ts",
