@@ -164,7 +164,7 @@ impl SonaConfigWasm {
     /// Set pattern capacity
     #[wasm_bindgen(setter, js_name = patternCapacity)]
     pub fn set_pattern_capacity(&mut self, value: usize) {
-        self.pattern_capacity = value.max(10).min(1000);
+        self.pattern_capacity = value.min(1000);
     }
 
     /// Get EWC lambda
@@ -724,12 +724,6 @@ mod tests {
         assert_eq!(stats.buffer_size, 1);
     }
 
-    // Pre-existing logic mismatch (out of scope for wasm-bindgen test gating):
-    // set_pattern_capacity clamps via value.max(10).min(1000), so passing 5
-    // produces capacity 10, not 5. Test asserts buffer_size==5. Either the
-    // setter's lower clamp or the test expectation is wrong; resolving the
-    // intent is unrelated to ADR-0231 wave 2.
-    #[ignore]
     #[test]
     fn test_pattern_buffer_overflow() {
         let mut config = SonaConfigWasm::new();
