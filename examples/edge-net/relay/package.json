@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/edge-net-relay",
-  "version": "0.2.0-patch.118",
+  "version": "0.2.0-patch.119",
   "description": "Edge-Net WebSocket Relay with Brain API Bridge (ADR-069 Phase 1)",
   "main": "index.js",
   "type": "module",
