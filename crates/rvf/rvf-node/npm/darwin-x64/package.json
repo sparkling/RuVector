@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/rvf-node-darwin-x64",
-  "version": "0.1.7-patch.144",
+  "version": "0.1.7-patch.145",
   "cpu": [
     "x64"
   ],
