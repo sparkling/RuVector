@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/wasm",
-  "version": "0.1.1-patch.153",
+  "version": "0.1.1-patch.154",
   "description": "Unified meta-package for RuVector WASM modules - learning, economy, exotic AI, nervous system, and attention",
   "type": "module",
   "main": "./index.js",
@@ -44,11 +44,11 @@
     "prepublishOnly": "npm run typecheck"
   },
   "dependencies": {
-    "@ruvector/learning-wasm": "0.1.29-patch.146",
-    "@ruvector/economy-wasm": "0.1.29-patch.124",
-    "@ruvector/exotic-wasm": "0.1.29-patch.124",
-    "@ruvector/nervous-system-wasm": "0.1.29-patch.124",
-    "@ruvector/attention-unified-wasm": "0.1.29-patch.124"
+    "@ruvector/learning-wasm": "0.1.29-patch.147",
+    "@ruvector/economy-wasm": "0.1.29-patch.125",
+    "@ruvector/exotic-wasm": "0.1.29-patch.125",
+    "@ruvector/nervous-system-wasm": "0.1.29-patch.125",
+    "@ruvector/attention-unified-wasm": "0.1.29-patch.125"
   },
   "devDependencies": {
     "typescript": "^5.3.3"

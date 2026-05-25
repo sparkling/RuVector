@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/graph-transformer-win32-x64-msvc",
-  "version": "2.0.4-patch.124",
+  "version": "2.0.4-patch.125",
   "os": [
     "win32"
   ],
