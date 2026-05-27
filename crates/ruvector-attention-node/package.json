@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/attention",
-  "version": "0.1.4-patch.181",
+  "version": "0.1.4-patch.182",
   "description": "High-performance attention mechanisms for Node.js",
   "main": "index.js",
   "types": "index.d.ts",
@@ -53,11 +53,11 @@
     "access": "public"
   },
   "optionalDependencies": {
-    "@ruvector/attention-win32-x64-msvc": "0.1.4-patch.151",
-    "@ruvector/attention-darwin-x64": "0.1.4-patch.134",
-    "@ruvector/attention-darwin-arm64": "0.1.1-patch.134",
-    "@ruvector/attention-linux-x64-gnu": "0.1.4-patch.134",
-    "@ruvector/attention-linux-arm64-gnu": "0.1.1-patch.134"
+    "@ruvector/attention-win32-x64-msvc": "0.1.4-patch.152",
+    "@ruvector/attention-darwin-x64": "0.1.4-patch.135",
+    "@ruvector/attention-darwin-arm64": "0.1.1-patch.135",
+    "@ruvector/attention-linux-x64-gnu": "0.1.4-patch.135",
+    "@ruvector/attention-linux-arm64-gnu": "0.1.1-patch.135"
   },
   "devDependencies": {
     "@napi-rs/cli": "^2.18.0"
