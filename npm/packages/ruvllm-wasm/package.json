@@ -4,7 +4,7 @@
     "Ruvector Team"
   ],
   "description": "WASM bindings for RuvLLM - browser-compatible LLM inference runtime with WebGPU acceleration",
-  "version": "2.0.2-patch.41",
+  "version": "2.0.2-patch.42",
   "license": "MIT",
   "repository": {
     "type": "git",
