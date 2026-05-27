@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/sona-linux-x64-musl",
-  "version": "0.1.5-patch.143",
+  "version": "0.1.5-patch.144",
   "os": [
     "linux"
   ],
