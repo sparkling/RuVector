@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/cluster",
-  "version": "0.1.0-patch.158",
+  "version": "0.1.0-patch.159",
   "description": "Distributed clustering and coordination for RuVector - auto-sharding, Raft consensus integration",
   "main": "index.js",
   "types": "index.d.ts",
