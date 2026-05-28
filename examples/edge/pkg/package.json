@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/edge",
-  "version": "0.1.9-patch.157",
+  "version": "0.1.9-patch.158",
   "type": "module",
   "description": "Free edge-based AI swarms in the browser - P2P, crypto, vector search, neural networks. Install @ruvector/edge-full for graph DB, SQL, ONNX embeddings.",
   "main": "ruvector_edge.js",
@@ -61,10 +61,10 @@
     "./snippets/*"
   ],
   "optionalDependencies": {
-    "@ruvector/edge-full": "0.1.0-patch.157"
+    "@ruvector/edge-full": "0.1.0-patch.158"
   },
   "peerDependencies": {
-    "@ruvector/edge-full": "0.1.0-patch.157"
+    "@ruvector/edge-full": "0.1.0-patch.158"
   },
   "peerDependenciesMeta": {
     "@ruvector/edge-full": {
