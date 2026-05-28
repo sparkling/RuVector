@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/graph-transformer-linux-arm64-musl",
-  "version": "2.0.4-patch.171",
+  "version": "2.0.4-patch.172",
   "os": [
     "linux"
   ],
