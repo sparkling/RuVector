@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/ruvllm-win32-x64-msvc",
-  "version": "2.0.0-patch.162",
+  "version": "2.0.0-patch.163",
   "os": [
     "win32"
   ],
