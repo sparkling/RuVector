@@ -6,7 +6,7 @@
   ],
   "author": "RuVector Team <ruvnet@users.noreply.github.com>",
   "description": "Ultra-fast MicroLoRA adaptation for WASM - rank-2 LoRA with <100us latency for per-operator learning",
-  "version": "0.1.29-patch.187",
+  "version": "0.1.29-patch.188",
   "license": "MIT OR Apache-2.0",
   "repository": {
     "type": "git",
