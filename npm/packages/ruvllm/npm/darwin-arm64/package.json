@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/ruvllm-darwin-arm64",
-  "version": "2.0.0-patch.170",
+  "version": "2.0.0-patch.171",
   "description": "RuvLLM native bindings for macOS ARM64 (Apple Silicon)",
   "os": [
     "darwin"
