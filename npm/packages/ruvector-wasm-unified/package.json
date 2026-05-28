@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/wasm-unified",
-  "version": "1.0.0-patch.166",
+  "version": "1.0.0-patch.167",
   "description": "Unified TypeScript API surface for RuVector WASM - attention, learning, economy, and exotic features",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
