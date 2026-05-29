@@ -1,3 +1,11 @@
+> **🍴 `@sparkleideas/ruvector` — the Sparkling fork**
+>
+> This is **[`@sparkleideas/ruvector`](https://github.com/sparkling/RuVector)**, the Sparkling-maintained fork of **[`ruvnet/ruvector`](https://github.com/ruvnet/ruvector)** — rebuilt from source with bug fixes and current upstream commits.
+>
+> **Install:** `npm install @sparkleideas/ruvector`
+> **Coming from `ruvector`?** It's a drop-in replacement — swap the package name.
+> **Issues & support:** <https://github.com/sparkling/RuVector/issues>
+
 # RuVector — A Self-Learning, Vector Memory & Agentic Operating System
 [![CES 2026 Innovation Award](https://img.shields.io/badge/🏅_CES_2026-Innovation_Award-gold.svg)](https://cognitum.one)
 [![GitHub Trending](https://img.shields.io/badge/🔥_GitHub-Trending-orange.svg)](https://github.com/ruvnet/ruvector)
@@ -429,7 +437,7 @@ RuVector powers two major AI orchestration platforms:
 
 | Platform | Purpose | Install | Downloads |
 |----------|---------|---------|-----------|
-| [**ruFlo**](https://github.com/ruvnet/claude-flow) | Enterprise multi-agent orchestration for Claude Code | `npx ruvflo@latest` | [![npm downloads](https://img.shields.io/npm/dt/claude-flow.svg)](https://www.npmjs.com/package/claude-flow) |
+| [**ruFlo**](https://github.com/sparkling/ruflo) | Enterprise multi-agent orchestration for Claude Code | `npx ruvflo@latest` | [![npm downloads](https://img.shields.io/npm/dt/claude-flow.svg)](https://www.npmjs.com/package/claude-flow) |
 | [**Agentic-Flow**](https://github.com/ruvnet/agentic-flow) | Run AI agents on any cloud with any model — Claude, GPT, Gemini, or local | `npx agentic-flow@latest` | [![npm downloads](https://img.shields.io/npm/dt/agentic-flow.svg)](https://www.npmjs.com/package/agentic-flow) |
 | [**AgentDB**](https://github.com/ruvnet/agentdb) | Give AI agents long-term memory that gets smarter over time | `npm install agentdb@alpha` | [![npm downloads](https://img.shields.io/npm/dt/agentdb.svg)](https://www.npmjs.com/package/agentdb) |
 
@@ -1193,7 +1201,7 @@ Think of it like your computer's memory hierarchy—frequently accessed data liv
 |----------|-------------------|---------|
 | **RAG Pipelines** | Local vector search + local LLM — zero cloud costs, search improves from every query | [examples/ruvLLM](./examples/ruvLLM) |
 | **AI Agent Memory** | GNN-backed HNSW memory that agents share and learn from across sessions | [Agentic-Flow](https://github.com/ruvnet/agentic-flow) |
-| **Agent Routing** | Semantic router with SONA self-learning picks the right agent in <1ms | [Claude-Flow](https://github.com/ruvnet/claude-flow) |
+| **Agent Routing** | Semantic router with SONA self-learning picks the right agent in <1ms | [Claude-Flow](https://github.com/sparkling/ruflo) |
 | **Self-Learning Chatbots** | ReasoningBank + EWC++ — learns from conversations without forgetting previous ones | [examples/meta-cognition](./examples/meta-cognition-spiking-neural-network) |
 
 ```javascript
