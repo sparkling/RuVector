@@ -11110,6 +11110,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "rvf-index"
+version = "0.1.0"
+
+[[package]]
 name = "rvf-kernel"
 version = "0.1.0"
 dependencies = [
@@ -11149,6 +11153,7 @@ version = "0.2.0"
 dependencies = [
  "crc32fast",
  "libc",
+ "rvf-index",
  "rvf-types",
  "zerocopy 0.7.35",
 ]
