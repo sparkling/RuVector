@@ -946,6 +946,49 @@ impl RvfDatabase {
         store.close().map_err(map_rvf_err)
     }
 
+    /// ADR-0274 D3: peek the committed on-disk RootHeader txnid for `path`
+    /// WITHOUT opening a full store (no flock, no O(vectors) boot reload).
+    /// Returns 0 for a legacy/uncommitted file. The persistent read handle
+    /// calls this before a query to decide whether to lazily reopen
+    /// (cross-process read-after-write freshness). Static — no store instance.
+    #[napi]
+    pub fn peek_txnid(path: String) -> Result<f64> {
+        let t = RvfStore::peek_txnid(Path::new(&path)).map_err(map_rvf_err)?;
+        Ok(t as f64)
+    }
+
+    /// ADR-0274 D5: release this writer's flock while keeping the handle and
+    /// all in-memory state open (park). Complement of `reacquireLock`. No-op on
+    /// a read-only handle. Lets a persistent writer hold the flock only for the
+    /// duration of a transaction instead of for the whole process lifetime.
+    #[napi]
+    pub fn release_lock(&self) -> Result<()> {
+        let mut guard = self
+            .inner
+            .lock()
+            .map_err(|_| napi::Error::from_reason("Lock poisoned"))?;
+        let store = guard
+            .as_mut()
+            .ok_or_else(|| napi::Error::from_reason("Store is closed"))?;
+        store.park_writer().map_err(map_rvf_err)
+    }
+
+    /// ADR-0274 D5: re-acquire this writer's flock (unpark), with O(1) txnid
+    /// re-validation — reloads from disk only if a peer writer advanced the
+    /// file while this writer was parked, so a stale segment directory can
+    /// never clobber the peer's manifest.
+    #[napi]
+    pub fn reacquire_lock(&self) -> Result<()> {
+        let mut guard = self
+            .inner
+            .lock()
+            .map_err(|_| napi::Error::from_reason("Lock poisoned"))?;
+        let store = guard
+            .as_mut()
+            .ok_or_else(|| napi::Error::from_reason("Store is closed"))?;
+        store.unpark_writer().map_err(map_rvf_err)
+    }
+
     // ── Lineage methods ──────────────────────────────────────────────
 
     /// Get this file's unique identifier as a hex string.

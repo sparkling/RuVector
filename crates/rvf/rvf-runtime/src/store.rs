@@ -132,6 +132,14 @@ pub struct RvfStore {
     /// doesn't corrupt the file by writing slot bytes over real segments.
     /// Compact always sets this `true` on the rewritten file.
     has_root_header: bool,
+    /// ADR-0274 D5: the on-disk RootHeader txnid this store's in-memory state
+    /// reflects. Set on `boot()` (active slot txnid) and after each
+    /// `write_manifest` → `commit_new_root` (the new txnid). `unpark_writer`
+    /// compares it against the live on-disk txnid to detect whether a peer
+    /// writer advanced the file while this writer's flock was released — if so
+    /// it reloads (`boot`) before appending, so a parked writer never clobbers
+    /// a peer's manifest with a stale in-memory segment directory.
+    last_committed_txnid: u64,
 }
 
 impl RvfStore {
@@ -214,6 +222,7 @@ impl RvfStore {
             segment_dir: Vec::new(),
             read_only: false,
             last_compaction_time: 0,
+            last_committed_txnid: 0,
             file_identity: FileIdentity::new_root(file_id),
             cow_engine: None,
             membership_filter: None,
@@ -334,6 +343,7 @@ impl RvfStore {
             file,
             seg_writer: None,
             writer_lock: Some(writer_lock),
+            last_committed_txnid: 0,
             vectors: VectorData::new(0),
             deletion_bitmap: DeletionBitmap::new(),
             metadata: MetadataStore::new(),
@@ -391,6 +401,7 @@ impl RvfStore {
             epoch: 0,
             segment_dir: Vec::new(),
             read_only: true,
+            last_committed_txnid: 0,
             last_compaction_time: 0,
             file_identity: FileIdentity::zeroed(),
             cow_engine: None,
@@ -1262,6 +1273,68 @@ impl RvfStore {
         Ok(())
     }
 
+    /// ADR-0274 D3: peek the committed on-disk RootHeader txnid for `path`
+    /// WITHOUT opening a full store (no flock, no O(vectors) boot reload).
+    ///
+    /// O(1): opens the file read-only and reads the 128-byte double-buffered
+    /// RootHeader, returning the active slot's txnid. Returns `Ok(0)` for a
+    /// legacy/uncommitted file (no valid RootHeader slot) — callers treat 0 as
+    /// "nothing committed yet". This is the cross-process freshness probe a
+    /// persistent read handle uses to decide when to lazily reopen.
+    pub fn peek_txnid(path: &Path) -> Result<u64, RvfError> {
+        let file = OpenOptions::new()
+            .read(true)
+            .open(path)
+            .map_err(|_| err(ErrorCode::ManifestNotFound))?;
+        Ok(read_active_txnid(&file))
+    }
+
+    /// ADR-0274 D5: release this writer's flock while keeping the store handle
+    /// (and all in-memory state) open, after a durable sync so peers observe a
+    /// consistent file. The complement of `unpark_writer`. No-op for a
+    /// read-only handle (which never held a flock).
+    pub fn park_writer(&mut self) -> Result<(), RvfError> {
+        if self.read_only {
+            return Ok(());
+        }
+        // Flush so a peer that acquires the flock next sees our committed bytes.
+        self.file
+            .sync_all()
+            .map_err(|_| err(ErrorCode::FsyncFailed))?;
+        // Dropping the WriterLock releases the kernel flock (or decrements the
+        // process-local refcount). In-memory vectors/segment_dir/epoch and the
+        // open fd are retained — no reload on the next write unless a peer wrote.
+        self.writer_lock = None;
+        Ok(())
+    }
+
+    /// ADR-0274 D5: re-acquire the writer flock for a parked writer, with O(1)
+    /// txnid re-validation. If a peer writer advanced the on-disk txnid while
+    /// the flock was released, reload (`boot`) so this writer's in-memory
+    /// segment directory reflects the peer's segments BEFORE it appends —
+    /// otherwise the next `write_manifest` would commit a manifest missing the
+    /// peer's data (silent loss). If the txnid is unchanged (the common,
+    /// uncontended case) this is just a flock acquire — no O(vectors) reload.
+    pub fn unpark_writer(&mut self) -> Result<(), RvfError> {
+        if self.read_only {
+            return Err(err(ErrorCode::ReadOnly));
+        }
+        if self.writer_lock.is_some() {
+            return Ok(()); // already held — nothing to do
+        }
+        let lock = WriterLock::acquire(&self.path).map_err(|_| err(ErrorCode::LockHeld))?;
+        self.writer_lock = Some(lock);
+
+        // O(1) re-validation: compare the live on-disk txnid against the one our
+        // in-memory state reflects. Advanced => a peer committed while we were
+        // parked => reload to absorb their segments before we append.
+        let on_disk = read_active_txnid(&self.file);
+        if on_disk > self.last_committed_txnid {
+            self.boot()?; // resets vectors/segment_dir/epoch/seg_writer + last_committed_txnid
+        }
+        Ok(())
+    }
+
     // -- Kernel / eBPF embedding API --
 
     /// Embed a kernel image into this RVF file as a KERNEL_SEG.
@@ -2103,6 +2176,7 @@ impl RvfStore {
             segment_dir: Vec::new(),
             read_only: false,
             last_compaction_time: 0,
+            last_committed_txnid: 0,
             file_identity: child_identity,
             cow_engine: None,
             membership_filter: None,
@@ -2379,6 +2453,10 @@ impl RvfStore {
             self.seg_writer = Some(SegmentWriter::new(max_seg_id + 1));
         }
 
+        // ADR-0274 D5: record the on-disk txnid this freshly-loaded in-memory
+        // state reflects, so a later `unpark_writer` can detect peer writes.
+        self.last_committed_txnid = read_active_txnid(&self.file);
+
         Ok(())
     }
 
@@ -2444,13 +2522,15 @@ impl RvfStore {
         // data. Such files keep working through the (slower) tail-scan
         // path until compact() opportunistically upgrades them.
         if self.has_root_header {
-            root_header::commit_new_root(
+            let new_txnid = root_header::commit_new_root(
                 &self.file,
                 manifest_offset,
                 manifest_payload_len,
                 self.file_identity.file_id,
             )
             .map_err(|_| err(ErrorCode::FsyncFailed))?;
+            // ADR-0274 D5: our in-memory state now reflects this committed txnid.
+            self.last_committed_txnid = new_txnid;
         }
 
         Ok(())
@@ -2465,6 +2545,17 @@ impl RvfStore {
 /// `SeekFrom::End(0)` to byte 128, which is where the first manifest
 /// segment will land — keeping offsets 0..128 forever clear of
 /// segment data.
+/// ADR-0274 D3/D5: read the active (highest-valid-txnid) RootHeader slot's
+/// txnid from an already-open file. O(1) — a 128-byte pread of the two root
+/// slots. Returns 0 when neither slot is valid (legacy file, or a brand-new
+/// file before its first `commit_new_root`).
+fn read_active_txnid(file: &std::fs::File) -> u64 {
+    match root_header::RootHeader::read(file) {
+        Ok(rh) => rh.active_slot().map(|s| s.txnid()).unwrap_or(0),
+        Err(_) => 0,
+    }
+}
+
 fn reserve_root_header_space(file: &std::fs::File) -> Result<(), RvfError> {
     use std::io::Write;
     // ADR-0167 Phase 1 (peer-visibility fix): stamp the RVFROOT\0 magic
@@ -3296,6 +3387,85 @@ mod tests {
         assert_ne!(store.last_witness_hash(), &[0u8; 32]);
 
         store.close().unwrap();
+    }
+
+    // ADR-0274 D5: a parked writer (flock released, handle + state retained)
+    // that re-acquires after a PEER advanced the file must reload (txnid
+    // re-validation) so it never clobbers the peer's manifest with a stale
+    // segment directory. This is the in-process witness of the cross-process
+    // integrity property the P3 stress harness exercises at scale.
+    #[test]
+    fn park_unpark_absorbs_peer_write_no_clobber() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("park_unpark.rvf");
+        let options = RvfOptions {
+            dimension: 4,
+            metric: DistanceMetric::L2,
+            ..Default::default()
+        };
+
+        // Writer A: create + ingest id=1, then park (release the flock).
+        let mut a = RvfStore::create(&path, options).unwrap();
+        let v1 = vec![1.0f32, 0.0, 0.0, 0.0];
+        a.ingest_batch(&[&v1[..]], &[1u64], None).unwrap();
+        let a_txnid_before = a.last_committed_txnid;
+        assert_eq!(a.vectors.len(), 1);
+        a.park_writer().unwrap();
+
+        // Peer B: open the same path (acquires the now-free flock), ingest
+        // id=2, close. Distinct fd, distinct session.
+        {
+            let mut b = RvfStore::open(&path).unwrap();
+            let v2 = vec![0.0f32, 1.0, 0.0, 0.0];
+            b.ingest_batch(&[&v2[..]], &[2u64], None).unwrap();
+            b.close().unwrap();
+        }
+
+        // The O(1) cross-process freshness probe sees the advance — no open.
+        let peeked = RvfStore::peek_txnid(&path).unwrap();
+        assert!(
+            peeked > a_txnid_before,
+            "peer write must advance on-disk txnid (peeked={peeked}, before={a_txnid_before})"
+        );
+
+        // A unparks → txnid advanced → reload → now sees BOTH vectors.
+        a.unpark_writer().unwrap();
+        assert_eq!(a.vectors.len(), 2, "unpark must absorb the peer's vector before appending");
+
+        // A appends id=3 and commits; the peer's id=2 must survive.
+        let v3 = vec![0.0f32, 0.0, 1.0, 0.0];
+        a.ingest_batch(&[&v3[..]], &[3u64], None).unwrap();
+        a.close().unwrap();
+
+        // Fresh reopen: all three ids present — the parked writer did not clobber.
+        let check = RvfStore::open_readonly(&path).unwrap();
+        assert_eq!(check.vectors.len(), 3, "all three ids must survive (no clobber)");
+    }
+
+    // ADR-0274 D5: with no peer write, unpark is a pure flock re-acquire — no
+    // O(vectors) reload, in-memory state intact, and the writer can keep going.
+    #[test]
+    fn park_unpark_fast_path_no_peer() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("park_fast.rvf");
+        let options = RvfOptions {
+            dimension: 4,
+            metric: DistanceMetric::L2,
+            ..Default::default()
+        };
+        let mut a = RvfStore::create(&path, options).unwrap();
+        let v1 = vec![1.0f32, 0.0, 0.0, 0.0];
+        a.ingest_batch(&[&v1[..]], &[1u64], None).unwrap();
+        let txnid = a.last_committed_txnid;
+        a.park_writer().unwrap();
+        a.unpark_writer().unwrap();
+        assert_eq!(a.last_committed_txnid, txnid, "no peer write → txnid unchanged (no reload)");
+        assert_eq!(a.vectors.len(), 1);
+        // Still writable after the flock cycle.
+        let v2 = vec![0.0f32, 1.0, 0.0, 0.0];
+        a.ingest_batch(&[&v2[..]], &[2u64], None).unwrap();
+        assert_eq!(a.vectors.len(), 2);
+        a.close().unwrap();
     }
 
     #[test]
