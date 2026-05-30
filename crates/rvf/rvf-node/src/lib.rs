@@ -18,6 +18,7 @@ use rvf_runtime::options::{
     QueryOptions as RustQueryOptions, RvfOptions as RustRvfOptions,
 };
 use rvf_runtime::RvfStore;
+use rvf_types::quality::ResponseQuality;
 use rvf_types::RvfError;
 
 // ── Error mapping ────────────────────────────────────────────────────
@@ -90,6 +91,25 @@ pub struct RvfSearchResult {
     pub id: i64,
     /// Distance from the query vector (lower = more similar).
     pub distance: f64,
+}
+
+/// ADR-0275: the QualityEnvelope surface for `query_with_envelope`.
+///
+/// Carries the search results plus the mandatory quality signal and the
+/// Layer-B-active flag, mapping from the runtime's `QualityEnvelope`.
+#[napi(object)]
+pub struct RvfQueryEnvelopeJs {
+    /// The search results (closest first).
+    pub results: Vec<RvfSearchResult>,
+    /// True when the RVF-native HNSW Layer B served the base query.
+    pub layer_b: bool,
+    /// Top-level quality signal: "Verified" | "Usable" | "Degraded" | "Unreliable".
+    /// Consumers MUST inspect this before trusting results (ADR-033 §2.4).
+    pub quality: String,
+    /// Number of candidates returned by the HNSW base query.
+    pub hnsw_candidate_count: u32,
+    /// Number of extra candidates contributed by the brute-force safety net.
+    pub safety_net_candidate_count: u32,
 }
 
 /// Result of a batch ingest operation.
@@ -836,6 +856,73 @@ impl RvfDatabase {
                 distance: r.distance as f64,
             })
             .collect())
+    }
+
+    /// ADR-0275: query returning the full QualityEnvelope, including the
+    /// Layer-B-active flag and the mandatory quality signal.
+    ///
+    /// Forces `AcceptDegraded` so the envelope is always returned to JS (the
+    /// caller inspects `quality` rather than receiving a thrown error on a
+    /// degraded result — the runtime `query_with_envelope` otherwise errors
+    /// for Degraded/Unreliable under the Auto preference).
+    #[napi]
+    pub fn query_with_envelope(
+        &self,
+        vector: Float32Array,
+        k: u32,
+        options: Option<RvfQueryOptions>,
+    ) -> Result<RvfQueryEnvelopeJs> {
+        use rvf_types::quality::QualityPreference;
+
+        let guard = self
+            .inner
+            .lock()
+            .map_err(|_| napi::Error::from_reason("Lock poisoned"))?;
+        let store = guard
+            .as_ref()
+            .ok_or_else(|| napi::Error::from_reason("Store is closed"))?;
+
+        let filter = match options.as_ref().and_then(|o| o.filter.as_ref()) {
+            Some(json_str) => Some(parse_filter_json(json_str)?),
+            None => None,
+        };
+        let rust_opts = RustQueryOptions {
+            ef_search: options
+                .as_ref()
+                .and_then(|o| o.ef_search)
+                .unwrap_or(100) as u16,
+            filter,
+            timeout_ms: options.as_ref().and_then(|o| o.timeout_ms).unwrap_or(0),
+            quality_preference: QualityPreference::AcceptDegraded,
+            ..RustQueryOptions::default()
+        };
+
+        let envelope = store
+            .query_with_envelope(&vector, k as usize, &rust_opts)
+            .map_err(map_rvf_err)?;
+
+        let quality = match envelope.quality {
+            ResponseQuality::Verified => "Verified",
+            ResponseQuality::Usable => "Usable",
+            ResponseQuality::Degraded => "Degraded",
+            ResponseQuality::Unreliable => "Unreliable",
+        }
+        .to_string();
+
+        Ok(RvfQueryEnvelopeJs {
+            results: envelope
+                .results
+                .into_iter()
+                .map(|r| RvfSearchResult {
+                    id: r.id as i64,
+                    distance: r.distance as f64,
+                })
+                .collect(),
+            layer_b: envelope.evidence.layers_used.layer_b,
+            quality,
+            hnsw_candidate_count: envelope.evidence.hnsw_candidate_count,
+            safety_net_candidate_count: envelope.evidence.safety_net_candidate_count,
+        })
     }
 
     /// Soft-delete vectors by ID.

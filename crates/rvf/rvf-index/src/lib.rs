@@ -16,6 +16,7 @@ pub mod distance;
 pub mod hnsw;
 pub mod layers;
 pub mod progressive;
+pub mod serde;
 pub mod traits;
 
 pub use builder::{build_full_index, build_layer_a, build_layer_b, build_layer_c};
@@ -24,6 +25,9 @@ pub use distance::{cosine_distance, dot_product, l2_distance};
 pub use hnsw::{HnswConfig, HnswGraph, HnswLayer};
 pub use layers::{IndexLayer, IndexState, LayerA, LayerB, LayerC, PartitionEntry};
 pub use progressive::ProgressiveIndex;
+pub use serde::{
+    deserialize_graph, serialize_graph, GraphCodecError, HNSW_GRAPH_MAGIC, HNSW_GRAPH_VERSION,
+};
 pub use traits::VectorStore;
 
 #[cfg(feature = "std")]

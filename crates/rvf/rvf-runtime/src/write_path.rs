@@ -403,6 +403,24 @@ impl SegmentWriter {
         Ok((seg_id, offset))
     }
 
+    /// Write an INDEX_SEG containing a serialized HNSW graph (ADR-0275).
+    ///
+    /// `index_payload` is produced by `rvf_index::serialize_graph` and decoded
+    /// on boot by `rvf_index::deserialize_graph`. The segment carries the same
+    /// header + content-hash protocol as every other segment, so a torn write
+    /// is caught by `read_segment_payload`'s magic/length checks.
+    ///
+    /// Returns the segment ID and byte offset where it was written.
+    pub(crate) fn write_index_seg<W: Write + Seek>(
+        &mut self,
+        writer: &mut W,
+        index_payload: &[u8],
+    ) -> io::Result<(u64, u64)> {
+        let seg_id = self.alloc_seg_id();
+        let offset = self.write_segment(writer, SegmentType::Index as u8, seg_id, index_payload)?;
+        Ok((seg_id, offset))
+    }
+
     /// Low-level: write a segment header + payload to the writer.
     /// Returns the byte offset where the segment was written.
     fn write_segment<W: Write + Seek>(

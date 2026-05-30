@@ -1859,6 +1859,7 @@ dependencies = [
  "crc32fast",
  "libc",
  "rand",
+ "rvf-index",
  "rvf-types",
  "tempfile",
  "zerocopy 0.7.35",
