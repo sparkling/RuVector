@@ -1327,11 +1327,71 @@ impl RvfStore {
 
         // O(1) re-validation: compare the live on-disk txnid against the one our
         // in-memory state reflects. Advanced => a peer committed while we were
-        // parked => reload to absorb their segments before we append.
+        // parked => resync the manifest so we absorb their segments before we
+        // append. Lightweight (manifest only, O(segments)) — NOT a full boot
+        // reload — so per-transaction flock cycling stays cheap even under heavy
+        // cross-process interleaving (the N-writer stress case).
         let on_disk = read_active_txnid(&self.file);
         if on_disk > self.last_committed_txnid {
-            self.boot()?; // resets vectors/segment_dir/epoch/seg_writer + last_committed_txnid
+            self.resync_for_write()?;
         }
+        Ok(())
+    }
+
+    /// ADR-0274 D5: lightweight write-path resync used by `unpark_writer` when a
+    /// peer advanced the on-disk txnid. Re-reads ONLY the active manifest's
+    /// segment directory + epoch + deletion bitmap + next segment id, so the
+    /// next `write_manifest` references the peer's segments (no clobber). It does
+    /// NOT do `boot()`'s O(vectors) VEC_SEG/META_SEG payload reload, and it does
+    /// NOT wipe this writer's in-memory `vectors` — so a tight write loop that
+    /// re-cycles the flock per transaction stays O(segments), not O(vectors), per
+    /// op. Cross-process read freshness of `vectors` is bounded by the documented
+    /// consistency window (D6); the durable data is never lost because the
+    /// committed manifest references every segment, which a later `boot()` loads.
+    fn resync_for_write(&mut self) -> Result<(), RvfError> {
+        let mut manifest: Option<read_path::ParsedManifest> = None;
+        if let Ok(rh) = root_header::RootHeader::read(&self.file) {
+            let slots: [(u8, &root_header::RootSlot); 2] = [(0, &rh.slot0), (1, &rh.slot1)];
+            let mut order = slots;
+            order.sort_by_key(|(_, s)| std::cmp::Reverse(if s.is_valid() { s.txnid() } else { 0 }));
+            for (_, slot) in &order {
+                if !slot.is_valid() {
+                    continue;
+                }
+                let mut reader = BufReader::new(&self.file);
+                if let Ok(Some(m)) = read_path::read_manifest_at(&mut reader, slot.manifest_offset()) {
+                    manifest = Some(m);
+                    break;
+                }
+            }
+        }
+        // No committed RootHeader manifest (legacy/uncommitted file): nothing to
+        // resync against — our in-memory state is already authoritative.
+        let manifest = match manifest {
+            Some(m) => m,
+            None => return Ok(()),
+        };
+
+        self.epoch = manifest.epoch;
+        self.deletion_bitmap = DeletionBitmap::from_ids(&manifest.deleted_ids);
+        self.segment_dir = manifest
+            .segment_dir
+            .iter()
+            .map(|e| (e.seg_id, e.offset, e.payload_length, e.seg_type))
+            .collect();
+        if let Some(fi) = manifest.file_identity {
+            self.file_identity = fi;
+        }
+        // Advance the segment writer past every existing segment id (ours + the
+        // peer's) so our next append cannot collide.
+        let max_seg_id = self
+            .segment_dir
+            .iter()
+            .map(|&(id, _, _, _)| id)
+            .max()
+            .unwrap_or(0);
+        self.seg_writer = Some(SegmentWriter::new(max_seg_id + 1));
+        self.last_committed_txnid = read_active_txnid(&self.file);
         Ok(())
     }
 
@@ -3428,9 +3488,13 @@ mod tests {
             "peer write must advance on-disk txnid (peeked={peeked}, before={a_txnid_before})"
         );
 
-        // A unparks → txnid advanced → reload → now sees BOTH vectors.
+        // A unparks → txnid advanced → lightweight resync. The peer's segment is
+        // now in A's segment_dir (so A won't clobber it on write), but the peer's
+        // vector payload is intentionally NOT reloaded into memory (O(vectors)
+        // avoided); A's own in-session vector remains. The no-clobber property is
+        // proven by the final reopen below (all 3 ids present on disk).
         a.unpark_writer().unwrap();
-        assert_eq!(a.vectors.len(), 2, "unpark must absorb the peer's vector before appending");
+        assert_eq!(a.vectors.len(), 1, "light resync preserves A's in-memory vector without reloading the peer's payload");
 
         // A appends id=3 and commits; the peer's id=2 must survive.
         let v3 = vec![0.0f32, 0.0, 1.0, 0.0];
