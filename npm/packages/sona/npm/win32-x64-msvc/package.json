@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/sona-win32-x64-msvc",
-  "version": "0.1.5-patch.177",
+  "version": "0.1.5-patch.178",
   "os": [
     "win32"
   ],
