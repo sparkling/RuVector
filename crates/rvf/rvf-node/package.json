@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/rvf-node",
-  "version": "0.1.7-patch.232",
+  "version": "0.1.7-patch.233",
   "description": "RuVector Format Node.js native bindings",
   "main": "index.js",
   "types": "index.d.ts",
