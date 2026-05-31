@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/rvf-node-linux-arm64-gnu",
-  "version": "0.1.7-patch.200",
+  "version": "0.1.7-patch.201",
   "cpu": [
     "arm64"
   ],
