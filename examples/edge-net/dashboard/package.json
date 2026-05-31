@@ -1,7 +1,7 @@
 {
   "name": "@ruvector/edge-net-dashboard",
   "private": true,
-  "version": "0.1.0-patch.182",
+  "version": "0.1.0-patch.183",
   "type": "module",
   "description": "Edge-Net Dashboard - Time Crystal Network Visualization",
   "scripts": {
