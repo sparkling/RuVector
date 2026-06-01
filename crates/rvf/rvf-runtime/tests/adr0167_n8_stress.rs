@@ -229,3 +229,129 @@ fn n8_repeat_5x_no_flake() {
         );
     }
 }
+
+// ── ADR-0284 single-flock collapse: park/unpark envelope stress ──────────────
+//
+// The tests above use open→ingest→close, where the flock is held CONTINUOUSLY
+// from open to close — peers fully serialize and never hit unpark_writer. The JS
+// `rvf-backend.ts` layer (and the ADR-0284 single-flock collapse) instead RELEASES
+// the flock between transactions (park) and reacquires-with-resync (unpark). After
+// the `.jslock` was removed, the JS layer still lost writes at N=16 — so the
+// residual race is in the park/unpark + resync_for_write path, which the
+// open→ingest→close tests cannot see. These tests reproduce it natively.
+
+/// Spawn N park/unpark workers (env `RVF_TEST_WRITER_PARKUNPARK=1`) concurrently.
+fn run_n_workers_parkunpark(store_path: &std::path::Path, n: usize) {
+    let writer_bin = env!("CARGO_BIN_EXE_rvf_test_writer");
+    let children: Vec<(usize, std::process::Child)> = (1..=n)
+        .map(|i| {
+            let mut cmd = Command::new(writer_bin);
+            cmd.arg(store_path)
+                .arg(i.to_string())
+                .arg(format!("writer-{i}"))
+                .env("RVF_TEST_WRITER_PARKUNPARK", "1")
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped());
+            let child = cmd.spawn().unwrap_or_else(|e| panic!("spawn parkunpark worker {i}: {e}"));
+            (i, child)
+        })
+        .collect();
+    for (i, child) in children {
+        let output = child
+            .wait_with_output()
+            .unwrap_or_else(|e| panic!("wait on parkunpark worker {i}: {e}"));
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            panic!("parkunpark worker {i} exited {:?}\nstderr:\n{stderr}", output.status);
+        }
+    }
+}
+
+/// ADR-0284 — N=16 cross-process stress using the PARK/UNPARK envelope (the JS
+/// pattern: open → park → unpark+resync → ingest → park), the SOLE cross-process
+/// serializer the single-flock collapse relies on. Must reach 16/16; a shortfall
+/// is the residual `resync_for_write` race the JS layer hit.
+#[test]
+fn n16_parkunpark_cross_process() {
+    let dir = TempDir::new().expect("tempdir");
+    let store_path = dir.path().join("store.rvf");
+    pre_create_store(&store_path);
+    let n = 16_usize;
+
+    let start = Instant::now();
+    run_n_workers_parkunpark(&store_path, n);
+    let elapsed = start.elapsed();
+
+    let entries = readback_payloads(&store_path);
+    eprintln!("[ADR-0284 n16 parkunpark] wall-time={}ms entries={}/{}", elapsed.as_millis(), entries.len(), n);
+
+    assert_eq!(
+        entries.len(),
+        n,
+        "park/unpark cross-process write loss: {}/{} survived — {entries:?}",
+        entries.len(),
+        n
+    );
+    let expected: Vec<(u64, String)> = (1..=n as u64).map(|i| (i, format!("writer-{i}"))).collect();
+    assert_eq!(entries, expected, "park/unpark payload mismatch (overwrite/clobber)");
+}
+
+/// ADR-0284 ROOT-CAUSE confirmation — duplicate native ids OVERWRITE.
+///
+/// 8 park/unpark writers all using vid=1 with DISTINCT payloads. A store keyed by
+/// numeric id collapses them to a single entry. This is the exact mechanism the JS
+/// `assignNativeId` hits cross-process: `nextNativeId` is a per-process counter
+/// seeded identically from the shared load, so concurrent writers assign the SAME
+/// id to different entries. Proves the loss is id-collision, NOT a lock/resync
+/// defect (the unique-id `n16_parkunpark_cross_process` passes 16/16 on the same
+/// build). The fix therefore belongs in id assignment, not the flock.
+#[test]
+fn dup_native_id_overwrites_confirms_idcollision() {
+    let dir = TempDir::new().expect("tempdir");
+    let store_path = dir.path().join("store.rvf");
+    pre_create_store(&store_path);
+    let n = 8_usize;
+    let writer_bin = env!("CARGO_BIN_EXE_rvf_test_writer");
+    let children: Vec<(usize, std::process::Child)> = (1..=n)
+        .map(|i| {
+            let mut cmd = Command::new(writer_bin);
+            cmd.arg(&store_path)
+                .arg("1") // ALL writers use vid=1 — the collision the JS counter produces
+                .arg(format!("writer-{i}"))
+                .env("RVF_TEST_WRITER_PARKUNPARK", "1")
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped());
+            (i, cmd.spawn().unwrap_or_else(|e| panic!("spawn dup-id worker {i}: {e}")))
+        })
+        .collect();
+    for (i, child) in children {
+        let output = child.wait_with_output().unwrap_or_else(|e| panic!("wait {i}: {e}"));
+        assert!(output.status.success(), "dup-id worker {i}: {}", String::from_utf8_lossy(&output.stderr));
+    }
+    let entries = readback_payloads(&store_path);
+    eprintln!("[ADR-0284 dup-id] {} entries from 8 writers all vid=1 => {entries:?}", entries.len());
+    assert_eq!(
+        entries.len(),
+        1,
+        "8 dup-id writers should collapse to 1 entry (id-keyed overwrite); got {entries:?}"
+    );
+}
+
+/// ADR-0284 — N=8 park/unpark repeated 5× (the race is probabilistic; a single
+/// pass can be lucky). Ignored by default — a multi-round regression canary.
+#[test]
+#[ignore]
+fn n8_parkunpark_repeat_5x() {
+    let n = 8_usize;
+    for round in 1..=5 {
+        let dir = TempDir::new().expect("tempdir");
+        let store_path = dir.path().join("store.rvf");
+        pre_create_store(&store_path);
+        run_n_workers_parkunpark(&store_path, n);
+        let entries = readback_payloads(&store_path);
+        eprintln!("[ADR-0284 n8 parkunpark round={round}] entries={}/{}", entries.len(), n);
+        assert_eq!(entries.len(), n, "round {round}: park/unpark loss {}/{} — {entries:?}", entries.len(), n);
+    }
+}

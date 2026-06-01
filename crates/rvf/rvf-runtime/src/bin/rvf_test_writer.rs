@@ -88,6 +88,31 @@ fn main() -> ExitCode {
         }
     };
 
+    // ADR-0284 park/unpark mode (env `RVF_TEST_WRITER_PARKUNPARK=1`): mirror the
+    // JS `rvf-backend.ts` envelope, which is what the single-flock collapse relies
+    // on and is NOT the open→ingest→close pattern the other modes test. The JS does:
+    // open() [flock] → park after init load → per store: unpark (reacquire flock +
+    // resync_for_write) → ingest → park. So the flock is RELEASED between
+    // transactions and reacquired-with-resync — exercising unpark_writer as the sole
+    // cross-process serializer. open→ingest→close (the other modes) holds the flock
+    // continuously and never hits this path, which is why it can pass while the JS
+    // layer loses. This mode must still reach N/N.
+    let parkunpark = std::env::var("RVF_TEST_WRITER_PARKUNPARK")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    if parkunpark {
+        // init-park: release the flock taken at open() (INIT-WRAP's parkNativeWriter).
+        if let Err(e) = store.park_writer() {
+            eprintln!("park_writer (init) failed: {:?}", e);
+            return ExitCode::from(7);
+        }
+        // store-unpark: reacquire flock + resync peer's committed segments before append.
+        if let Err(e) = store.unpark_writer() {
+            eprintln!("unpark_writer failed: {:?}", e);
+            return ExitCode::from(8);
+        }
+    }
+
     // Deterministic vector content keyed off vid so duplicate-vid bugs
     // would be visible (different payload per writer).
     let vec_data: Vec<f32> = (0..dim).map(|i| (vid as f32) + 0.01 * (i as f32)).collect();
@@ -101,6 +126,14 @@ fn main() -> ExitCode {
         Err(e) => {
             eprintln!("ingest failed: {:?}", e);
             return ExitCode::from(5);
+        }
+    }
+
+    if parkunpark {
+        // store-park: release the flock at the envelope boundary (releaseLock → park).
+        if let Err(e) = store.park_writer() {
+            eprintln!("park_writer (post-ingest) failed: {:?}", e);
+            return ExitCode::from(9);
         }
     }
 
