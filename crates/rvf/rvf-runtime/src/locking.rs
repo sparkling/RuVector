@@ -3,65 +3,47 @@
 //! ADR-0095 amendment (2026-05-01, t3-2 fix — fork-only, sparkleideas/ruvector):
 //! the original implementation used `O_CREAT|O_EXCL` with a PID-stamped lock
 //! file and userspace stale-detection. Under N concurrent CLI processes that
-//! design produced LockHeld budget exhaustion and PID-stale-detection races.
-//! It was replaced with kernel `flock(LOCK_EX)` on a sibling `.lock` file that
-//! is never unlinked — giving FIFO blocking, auto-release on process death, and
-//! a same-inode flock queue shared by every cross-process peer.
+//! design produced two failure modes:
 //!
-//! ADR-0095 amendment (2026-06-01, t3-2 concurrent-write regression fix —
-//! reverts the 2026-05-04 change below):
+//!   1. **LockHeld budget exhaustion.** `O_CREAT|O_EXCL` returns `WouldBlock`
+//!      immediately on contention, never blocks; callers had to retry from
+//!      userspace with a 5s budget. The native `RvfStore` holds the lock for
+//!      its entire lifetime (= whole CLI process), so the last-in-line writer
+//!      among N=6 must wait for all N-1 prior writers to fully exit (~1-3s
+//!      each) — easily exceeding the 5s retry budget.
 //!
-//!   The 2026-05-04 "deadlock postmortem fix" replaced the blocking
-//!   `flock(LOCK_EX)` with a NON-blocking `flock(LOCK_EX|LOCK_NB)` poll loop
-//!   (100ms sleep, give up after `RVF_LOCK_ACQUIRE_TIMEOUT_MS`). That traded a
-//!   *rare same-process self-deadlock* for *common cross-process starvation*:
-//!   `LOCK_EX|LOCK_NB` does NOT join the kernel FIFO queue, so under N-way
-//!   contention each waiter polls every 100ms and most miss the brief free
-//!   window. The losing writers spent the whole budget polling-and-missing,
-//!   then timed out → `LockHeld` (loud loss). Raising the timeout converted the
-//!   loud errors into SILENT loss, because the create/open/unpark paths in
-//!   `store.rs` are written assuming the lock provides true FIFO ordering
-//!   ("the kernel flock guarantees FIFO ordering across processes" — they
-//!   re-check existence / re-validate txnid only AFTER acquiring, trusting the
-//!   queue to serialise them). The unfair poll lock broke that invariant, so
-//!   serialised-looking writers still clobbered each other's manifests.
+//!   2. **PID-stale-detection races.** Process death between writing the lock
+//!      file and acquiring it leaves an orphan; if the next peer reads the
+//!      stale lock and the dead PID is reused (or the OS recycles it before
+//!      the 30s threshold elapses), the next acquirer is blocked or — worse
+//!      — both peers think they hold the lock.
 //!
-//!   This amendment restores TRUE blocking `flock(LOCK_EX)` (fair kernel FIFO,
-//!   no userspace timeout, no starvation) for the cross-process path. The
-//!   same-process self-deadlock the 2026-05-04 change was avoiding — two
-//!   in-process `RvfStore` handles on the same path each opening a distinct fd
-//!   and blocking against each other (macOS `flock` is per-OFD) — is now closed
-//!   PROPERLY with a per-path in-process `Mutex` held across the entire
-//!   check → acquire → record critical section. A second same-process acquirer
-//!   blocks on that mutex (a normal in-process lock), observes the refcount
-//!   once the first acquirer has recorded it, and shares the existing flock via
-//!   refcount instead of opening a second fd. Cross-process peers live in a
-//!   different process with a different per-path mutex and contend only on the
-//!   kernel flock — so the mutex cannot cause a cross-process hang, and the
-//!   kernel flock cannot cause a same-process hang.
+//! The replacement: kernel `flock(LOCK_EX)` on a sibling `.lock` file that is
+//! never unlinked. This gives us:
 //!
-//! Properties of the restored design:
-//!
-//!   - **FIFO blocking.** `LOCK_EX` queues writers in the kernel; no userspace
-//!     retry budget, no poll-and-miss lottery, no give-up.
-//!   - **Auto-release on process death.** The kernel closes all fds when a
+//!   - **FIFO blocking.** `LOCK_EX` queues writers in the kernel; no
+//!     userspace retry budget, no fairness pathologies.
+//!   - **Auto-release on process death.** Kernel closes all fds when a
 //!     process exits — including when N-API skips Rust `Drop` due to
-//!     `process.exit(0)`. The flock is dropped with the fd; no stale-lock
+//!     `process.exit(0)`. The flock is dropped with the fd. No stale-lock
 //!     detection needed.
-//!   - **Same-inode flock queue.** The lock file is never unlinked, so
-//!     concurrent opens across processes share one inode and one kernel queue.
-//!   - **Deadlock-free same-process re-entrancy.** The per-path mutex +
-//!     refcount means nested / concurrent in-process acquisitions on one path
-//!     never open a second competing fd.
+//!   - **Same-inode flock queue.** Because the lock file is never unlinked,
+//!     concurrent opens all share the same inode, so all peers join the
+//!     same kernel flock queue.
+//!
+//! The same pattern is already used by the fork-side `IngestLockGuard` in
+//! `rvf-node/src/lib.rs:45-114`. This change extends it to cover the
+//! `RvfStore::create/open/derive` paths previously guarded by the broken
+//! O_EXCL `WriterLock`.
 //!
 //! Public API is preserved: `WriterLock::acquire`, `release`, `Drop`,
-//! `is_valid`, and `lock_path_for` all keep their signatures so `store.rs`
-//! needs no changes. `acquire` BLOCKS on cross-process contention (it never
-//! returns `WouldBlock`); callers that wrapped failures in `LockHeld` retry
-//! loops simply never see those errors.
+//! `is_valid`, and `lock_path_for` all still exist with the same signatures
+//! so `store.rs` does not need changes. `acquire` now BLOCKS instead of
+//! returning `WouldBlock` on contention — callers that wrapped the failure
+//! in `LockHeld` retry loops will simply never see those errors.
 //!
-//! Platform support: Unix only (Linux, macOS, BSD). Windows gets a no-op stub
-//! (out of scope per ADR-0095).
+//! Platform support: Unix only (Linux, macOS, BSD). Windows gets a no-op
+//! stub matching `IngestLockGuard`'s pattern (out of scope per ADR-0095).
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -69,53 +51,42 @@ use std::path::{Path, PathBuf};
 #[cfg(unix)]
 use std::collections::HashMap;
 #[cfg(unix)]
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::Mutex;
 
-/// Per-path coordination state guarding ONE rvf path's writer flock.
-///
-/// The enclosing `Mutex<PathLock>` is held across the entire
-/// check → `flock(LOCK_EX)` → record sequence in [`WriterLock::acquire`], so a
-/// second same-process acquirer for the same path blocks on the mutex (a normal
-/// in-process lock) rather than opening a second fd and blocking against this
-/// process's own first fd. That is what makes blocking `flock` safe to use
-/// here without re-introducing the 2026-05-04 self-deadlock.
 #[cfg(unix)]
-struct PathLock {
-    /// Number of live `WriterLock` guards in this process sharing the flock.
-    /// Nested / concurrent in-process acquisitions bump this; the kernel flock
-    /// is taken once (when 0 → 1) and released once (when 1 → 0).
-    refcount: usize,
-    /// The fd owning the kernel flock while `refcount > 0`; `-1` when idle.
-    fd: libc::c_int,
-}
-
-/// Get-or-create the process-local coordination mutex for `lock_path`.
-///
-/// Entries are never removed: a stable `Arc<Mutex<PathLock>>` per path
-/// guarantees all same-process acquirers serialise on the SAME mutex (removing
-/// and re-creating would open a window where two acquirers hold two different
-/// mutexes for one path and could each take a competing flock — the very
-/// self-deadlock we are closing). The registry holds one small struct per
-/// distinct `.rvf` path touched by the process; that set is bounded.
-#[cfg(unix)]
-fn path_lock_for(lock_path: &Path) -> Arc<Mutex<PathLock>> {
-    static REG: OnceLock<Mutex<HashMap<PathBuf, Arc<Mutex<PathLock>>>>> = OnceLock::new();
-    let reg = REG.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut map = reg.lock().unwrap();
-    map.entry(lock_path.to_path_buf())
-        .or_insert_with(|| Arc::new(Mutex::new(PathLock { refcount: 0, fd: -1 })))
-        .clone()
+fn process_local_holders() -> &'static Mutex<HashMap<PathBuf, usize>> {
+    // Process-local registry of paths this process already holds the
+    // flock for. flock(LOCK_EX) is per-fd on Linux/macOS — a second fd
+    // opened in the SAME process and flocked will block waiting for the
+    // first fd to release. Two in-process `RvfStore` instances on the
+    // same path is a real pattern (tests construct N RvfBackend objects
+    // concurrently to simulate cross-process behaviour; production hooks
+    // do it accidentally). For the in-process repeat case we want
+    // success, not a deadlock — the first holder is already enforcing
+    // exclusion against any peer process.
+    //
+    // The map's value is a refcount: nested in-process acquisitions are
+    // common (router-level ensure-init + per-store acquire). The lock is
+    // released only when refcount drops to zero.
+    use std::sync::OnceLock;
+    static H: OnceLock<Mutex<HashMap<PathBuf, usize>>> = OnceLock::new();
+    H.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 /// Represents an acquired writer lock.
 ///
-/// On Unix every guard holds an `Arc` to its path's [`PathLock`]; the kernel
-/// `flock(LOCK_EX)` is owned by the `PathLock::fd` while any guard is live.
-/// On Drop the refcount is decremented and, when it reaches zero, the kernel
-/// flock is released and the owning fd closed.
+/// On Unix this owns a file descriptor with `flock(LOCK_EX)` held. On Drop
+/// the fd is closed (which releases the flock automatically per POSIX
+/// semantics), and we additionally call `flock(LOCK_UN)` explicitly so
+/// queued peers wake up deterministically.
+///
+/// In-process repeat acquisitions on the same path do NOT take a new
+/// kernel flock — they bump a process-local refcount and return.
 pub(crate) struct WriterLock {
     #[cfg(unix)]
-    path_lock: Arc<Mutex<PathLock>>,
+    fd: libc::c_int, // -1 sentinel = process-local refcount holder, no real fd
+    #[cfg(unix)]
+    lock_path: PathBuf,
     #[cfg(not(unix))]
     _phantom: (),
 }
@@ -123,18 +94,16 @@ pub(crate) struct WriterLock {
 impl WriterLock {
     /// Acquire the writer lock for the given RVF file path.
     ///
-    /// **Blocking on Unix.** Takes a true `flock(LOCK_EX)` on the never-unlinked
-    /// sibling `.lock` file, joining the kernel FIFO queue. Cross-process peers
-    /// serialise fairly with no timeout and no starvation; the lock
-    /// auto-releases if this process dies. Same-process re-acquisitions of a
-    /// path already held by this process share the existing flock via a
-    /// refcount (no second fd, no self-deadlock). Returns `Ok(WriterLock)` once
-    /// held, or an `io::Error` on a genuine syscall failure (ENFILE, EACCES,
-    /// EBADF, ENOLCK, …) — `EINTR` is retried, never surfaced.
+    /// **Bounded-wait on Unix.** Polls `flock(LOCK_EX|LOCK_NB)` with a
+    /// 100ms sleep between attempts and surfaces `io::ErrorKind::TimedOut`
+    /// after `RVF_LOCK_ACQUIRE_TIMEOUT_MS` (default 30000ms). Returns
+    /// `Ok(WriterLock)` on success or an `io::Error` on syscall failure
+    /// (ENFILE, EACCES, etc.) or on timeout — never hangs indefinitely.
     ///
-    /// On non-Unix platforms this is a no-op (the previous PID-based design
-    /// never worked on Windows either). A real Windows port would use
-    /// `LockFileEx`.
+    /// On non-Unix platforms this is currently a no-op (the previous PID-
+    /// based implementation never worked correctly on Windows either, since
+    /// `kill(pid, 0)` is Unix-specific). A real Windows implementation
+    /// would use `LockFileEx`.
     pub(crate) fn acquire(rvf_path: &Path) -> io::Result<Self> {
         #[cfg(unix)]
         {
@@ -142,33 +111,27 @@ impl WriterLock {
             use std::os::unix::ffi::OsStrExt;
 
             let lock_path = lock_path_for(rvf_path);
-            let path_lock = path_lock_for(&lock_path);
 
-            // Hold the per-path mutex across the whole check → flock → record
-            // sequence. A concurrent same-process acquirer for this path blocks
-            // HERE on the mutex (not on its own flock fd), so the macOS
-            // per-OFD self-deadlock window is closed without abandoning kernel
-            // FIFO fairness for the cross-process case.
-            let mut state = path_lock.lock().unwrap();
-
-            // Same-process re-entrancy: the flock is already held by this
-            // process for this path. `flock(LOCK_EX)` is per-fd on Linux/macOS,
-            // so opening a second fd and blocking on it would deadlock against
-            // our own first fd. Refcount onto the existing flock instead.
-            if state.refcount > 0 {
-                state.refcount += 1;
-                drop(state);
-                return Ok(WriterLock { path_lock });
+            // Process-local short-circuit: if this process already holds
+            // the flock for `lock_path`, just bump the refcount and return
+            // a sentinel guard (fd = -1). The kernel flock is per-fd and
+            // would deadlock against ourselves otherwise.
+            {
+                let mut holders = process_local_holders().lock().unwrap();
+                if let Some(refcount) = holders.get_mut(&lock_path) {
+                    *refcount += 1;
+                    return Ok(WriterLock { fd: -1, lock_path });
+                }
+                // Not yet held — fall through to acquire the real flock.
+                // We'll insert into the map AFTER successful flock.
             }
 
-            // First acquirer in this process: open the lock file and take a
-            // TRUE blocking exclusive flock.
             let c_path = CString::new(lock_path.as_os_str().as_bytes())
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
 
             // O_CREAT|O_RDWR, mode 0o644. The file is NEVER unlinked, so
-            // concurrent opens across processes all refer to the same inode and
-            // join the same kernel flock queue.
+            // concurrent opens across processes all refer to the same inode
+            // and join the same kernel flock queue.
             let fd = unsafe {
                 libc::open(
                     c_path.as_ptr(),
@@ -180,32 +143,80 @@ impl WriterLock {
                 return Err(io::Error::last_os_error());
             }
 
-            // Blocking LOCK_EX. The kernel parks this thread until the lock is
-            // free and hands it off fairly — no poll, no timeout, no give-up.
-            // `EINTR` (a signal interrupting the blocked syscall — e.g. Node's
-            // SIGCHLD) is NOT a lock failure: retry. Any other error is a real
-            // syscall failure → surface it loud per ADR-0082 (no silent
-            // fallback). A dead peer's flock is auto-released by the kernel, so
-            // blocking here cannot wedge on a crashed holder.
+            // Bounded-wait exclusive lock. LOCK_EX serializes every writer
+            // across processes; the process-local short-circuit above
+            // handles same-process repeat. Kernel handles fairness and
+            // auto-release on process death.
+            //
+            // ADR-0095 amendment (2026-05-04, deadlock postmortem fix):
+            // a previous version used straight blocking `flock(LOCK_EX)`.
+            // macOS `flock(2)` is per-OFD, so two `RvfStore` instances
+            // opened in the same process via separate paths through the
+            // factory cache (or a caller bypassing the cache) would each
+            // get a distinct fd and deadlock — the second `LOCK_EX` waits
+            // forever for the first holder, and there is no
+            // `process_local_holders` short-circuit during the racy window
+            // between the first acquirer dropping the holders mutex and
+            // re-acquiring it to insert (see lines 118-126). The race is
+            // narrow but real; a hung flock is silent and indistinguishable
+            // from a wedged peer process.
+            //
+            // We poll `LOCK_EX|LOCK_NB` instead. Non-blocking fails fast
+            // with EWOULDBLOCK on contention; we sleep + retry until the
+            // configured timeout, then surface a loud error per ADR-0082
+            // (no silent fallback / no infinite hang). Cross-process
+            // semantics are preserved: same flock file, same inode, same
+            // kernel queue — `LOCK_EX|LOCK_NB` joins the same FIFO queue
+            // as the previous blocking call, just with a userspace
+            // timeout wrapper.
+            //
+            // Tunable via `RVF_LOCK_ACQUIRE_TIMEOUT_MS` env var. Default
+            // 30000ms (30s): long enough for legitimate cross-process
+            // serialization under realistic N≤8 contention, short enough
+            // that a stuck caller fails before pipeline timeouts hit.
+            let timeout_ms: u64 = std::env::var("RVF_LOCK_ACQUIRE_TIMEOUT_MS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(30_000);
+            let poll_interval = std::time::Duration::from_millis(100);
+            let acquire_start = std::time::Instant::now();
             loop {
-                let rc = unsafe { libc::flock(fd, libc::LOCK_EX) };
+                let rc = unsafe { libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) };
                 if rc == 0 {
                     break; // acquired
                 }
-                let e = io::Error::last_os_error();
-                if e.raw_os_error() == Some(libc::EINTR) {
-                    continue;
+                let err = io::Error::last_os_error();
+                // EWOULDBLOCK / EAGAIN is the contention signal; anything
+                // else is a syscall failure (EBADF, ENOLCK, EINTR is
+                // documented but rare on flock with NB) — surface it.
+                let raw = err.raw_os_error().unwrap_or(0);
+                if raw != libc::EWOULDBLOCK && raw != libc::EAGAIN {
+                    unsafe { libc::close(fd) };
+                    return Err(err);
                 }
-                unsafe { libc::close(fd) };
-                return Err(e);
+                if acquire_start.elapsed().as_millis() as u64 >= timeout_ms {
+                    unsafe { libc::close(fd) };
+                    return Err(io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        format!(
+                            "rvf WriterLock: flock(LOCK_EX) acquisition timed out after {}ms (path={}, timeout={}ms via RVF_LOCK_ACQUIRE_TIMEOUT_MS); peer process or in-process duplicate may be holding the lock",
+                            acquire_start.elapsed().as_millis(),
+                            lock_path.display(),
+                            timeout_ms,
+                        ),
+                    ));
+                }
+                std::thread::sleep(poll_interval);
             }
 
-            // Record the holder so future same-process acquisitions refcount.
-            state.fd = fd;
-            state.refcount = 1;
-            drop(state);
+            // Now record the holder so future same-process acquisitions
+            // hit the short-circuit above.
+            {
+                let mut holders = process_local_holders().lock().unwrap();
+                holders.insert(lock_path.clone(), 1);
+            }
 
-            Ok(WriterLock { path_lock })
+            Ok(WriterLock { fd, lock_path })
         }
         #[cfg(not(unix))]
         {
@@ -217,48 +228,65 @@ impl WriterLock {
     /// Release the writer lock explicitly.
     ///
     /// Equivalent to dropping the guard. Kept for API compatibility with the
-    /// previous implementation (`store.rs` calls this in `close()`).
+    /// previous implementation (`store.rs:946-947` calls this in `close()`).
     pub(crate) fn release(self) -> io::Result<()> {
-        // Drop runs automatically when `self` goes out of scope; explicit drop
-        // is unnecessary but harmless.
+        // Drop runs automatically when `self` goes out of scope at end of
+        // function; explicit drop is unnecessary but harmless.
         drop(self);
         Ok(())
     }
 
     /// Check if the lock is still held by us.
     ///
-    /// Under the flock-based design a successfully-acquired guard is held until
-    /// dropped — there is no "lock taken over" condition the way the old
-    /// PID-file design had. Kept for API compatibility with the old caller
-    /// surface.
+    /// Under the new flock-based design this is always `true` for a
+    /// successfully-acquired guard until it is dropped — there is no
+    /// "lock taken over" condition the way the PID-file design had. Kept
+    /// for API compatibility with the old implementation's caller surface.
     #[allow(dead_code)]
     pub(crate) fn is_valid(&self) -> bool {
-        true
+        #[cfg(unix)]
+        {
+            self.fd >= 0
+        }
+        #[cfg(not(unix))]
+        {
+            true
+        }
     }
 }
 
 #[cfg(unix)]
 impl Drop for WriterLock {
     fn drop(&mut self) {
-        // Decrement the process-local refcount. The last live guard for this
-        // path (refcount 1 → 0) releases the kernel flock and closes the owning
-        // fd; nested holders (refcount > 1) just decrement. Because the fd
-        // lives in the shared `PathLock` (not the guard), out-of-order guard
-        // drops can never leak the fd or leave the flock held.
-        let mut state = self.path_lock.lock().unwrap();
-        if state.refcount > 1 {
-            state.refcount -= 1;
-            return;
-        }
-        state.refcount = 0;
-        if state.fd >= 0 {
-            // Explicit LOCK_UN wakes queued peers deterministically; close()
-            // alone would also release on the kernel side.
-            unsafe {
-                libc::flock(state.fd, libc::LOCK_UN);
-                libc::close(state.fd);
+        // Decrement the process-local refcount. If we were a sentinel
+        // (fd == -1, in-process repeat acquisition), there's no real
+        // flock to release. If refcount drops to zero, release the real
+        // flock + close the fd held by the original acquirer.
+        let mut release_kernel_flock = false;
+        {
+            let mut holders = process_local_holders().lock().unwrap();
+            if let Some(refcount) = holders.get_mut(&self.lock_path) {
+                if *refcount > 1 {
+                    *refcount -= 1;
+                } else {
+                    holders.remove(&self.lock_path);
+                    // The acquisition that set refcount=1 is the one
+                    // holding the real fd. If that's THIS guard, release
+                    // the kernel flock. Sentinel guards (fd=-1) don't.
+                    if self.fd >= 0 {
+                        release_kernel_flock = true;
+                    }
+                }
             }
-            state.fd = -1;
+        }
+        if release_kernel_flock {
+            // Best-effort release. close() alone is enough — kernel reaps
+            // fd state on process death too. Explicit LOCK_UN wakes
+            // queued peers deterministically.
+            unsafe {
+                libc::flock(self.fd, libc::LOCK_UN);
+                libc::close(self.fd);
+            }
         }
     }
 }
@@ -311,33 +339,10 @@ mod tests {
         assert!(lock2.is_valid());
     }
 
-    #[test]
-    fn same_process_reentrant_acquire_refcounts_not_deadlocks() {
-        // Two guards on the same path in the SAME process must both succeed by
-        // sharing one flock via refcount — never block against each other.
-        // (With straight blocking flock and no per-path mutex this would
-        // deadlock on macOS per-OFD semantics; the mutex + refcount closes it.)
-        let dir = TempDir::new().unwrap();
-        let rvf_path = dir.path().join("reentrant.rvf");
-        std::fs::write(&rvf_path, b"").unwrap();
-
-        let a = WriterLock::acquire(&rvf_path).unwrap();
-        let b = WriterLock::acquire(&rvf_path).unwrap();
-        assert!(a.is_valid());
-        assert!(b.is_valid());
-        drop(b);
-        // `a` still holds the flock after the nested guard drops.
-        assert!(a.is_valid());
-        drop(a);
-
-        // Fully released — a fresh acquire takes a brand-new flock.
-        let c = WriterLock::acquire(&rvf_path).unwrap();
-        assert!(c.is_valid());
-    }
-
-    // Note: a cross-process "second-acquisition-blocks" test cannot run within
-    // a single process (recursive flock from the same process refcounts here
-    // instead of blocking). Cross-process behavior — the load-bearing case — is
-    // exercised by the ruflo-patch interproc race harness and the
-    // `tier3_concurrent_writers` integration test.
+    // Note: a "second-acquisition-blocks" test cannot run within a single
+    // process because Linux/macOS flock is not inherited by the same fd —
+    // recursive flock calls from the same process succeed instead of
+    // blocking. Cross-process behavior (the load-bearing case) is exercised
+    // by `scripts/diag-rvf-interproc-race.mjs --trials 40` in the
+    // ruflo-patch repo.
 }
