@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/ruvllm-win32-x64-msvc",
-  "version": "2.0.0-patch.196",
+  "version": "2.0.0-patch.197",
   "description": "RuvLLM native bindings for Windows x64 (MSVC)",
   "os": [
     "win32"
