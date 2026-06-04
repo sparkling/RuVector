@@ -1,0 +1,27 @@
+{
+  "name": "ruvector-rabitq-wasm",
+  "collaborators": [
+    "Ruvector Team"
+  ],
+  "description": "RaBitQ 1-bit quantized vector index in WebAssembly — 32× embedding compression with high-recall rerank, for browsers, Cloudflare Workers, Deno, and Bun",
+  "version": "0.1.0",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ruvnet/ruvector"
+  },
+  "files": [
+    "ruvector_rabitq_wasm_bg.wasm",
+    "ruvector_rabitq_wasm.js",
+    "ruvector_rabitq_wasm.d.ts"
+  ],
+  "main": "ruvector_rabitq_wasm.js",
+  "types": "ruvector_rabitq_wasm.d.ts",
+  "keywords": [
+    "wasm",
+    "rabitq",
+    "vector-search",
+    "quantization",
+    "embeddings"
+  ]
+}
