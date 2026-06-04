@@ -1,10 +1,10 @@
 {
-  "name": "@ruvector/ruvllm-wasm",
+  "name": "ruvllm-wasm",
   "collaborators": [
     "Ruvector Team"
   ],
   "description": "WASM bindings for RuvLLM - browser-compatible LLM inference runtime with WebGPU acceleration",
-  "version": "2.0.2-patch.93",
+  "version": "2.0.2",
   "license": "MIT",
   "repository": {
     "type": "git",
