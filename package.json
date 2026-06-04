@@ -1,6 +1,6 @@
 {
   "name": "ruvector",
-  "version": "0.1.2-patch.907",
+  "version": "0.1.2-patch.908",
   "description": "High-performance Rust-native vector database with AgenticDB compatibility",
   "private": true,
   "workspaces": [
@@ -55,6 +55,6 @@
     "body-parser": "^2.2.1"
   },
   "dependencies": {
-    "@claude-flow/memory": "3.0.0-alpha.15-patch.412"
+    "@claude-flow/memory": "3.0.0-alpha.15-patch.413"
   }
 }
