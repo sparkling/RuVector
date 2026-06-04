@@ -2432,17 +2432,45 @@ class SonaConfigWasm {
     }
     /**
      * Set EMA decay
+     *
+     * Returns `Err` if `value` is outside `[0.0, 1.0]` or non-finite (NaN).
+     *
+     * ADR-0237: fork diverges from upstream silent clamp
      * @param {number} value
      */
     set emaDecay(value) {
-        wasm.sonaconfigwasm_set_emaDecay(this.__wbg_ptr, value);
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.sonaconfigwasm_set_emaDecay(retptr, this.__wbg_ptr, value);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            if (r1) {
+                throw takeObject(r0);
+            }
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
     }
     /**
      * Set EWC lambda
+     *
+     * Returns `Err` if `value` is outside `[0.0, 1.0]` or non-finite (NaN).
+     *
+     * ADR-0237: fork diverges from upstream silent clamp
      * @param {number} value
      */
     set ewcLambda(value) {
-        wasm.sonaconfigwasm_set_ewcLambda(this.__wbg_ptr, value);
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.sonaconfigwasm_set_ewcLambda(retptr, this.__wbg_ptr, value);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            if (r1) {
+                throw takeObject(r0);
+            }
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
     }
     /**
      * Set hidden dimension
@@ -2453,20 +2481,54 @@ class SonaConfigWasm {
     }
     /**
      * Set learning rate
+     *
+     * Returns `Err` if `value` is outside `[0.0, 1.0]` or non-finite (NaN).
+     *
+     * ADR-0237: fork diverges from upstream silent clamp
      * @param {number} value
      */
     set learningRate(value) {
-        wasm.sonaconfigwasm_set_learningRate(this.__wbg_ptr, value);
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.sonaconfigwasm_set_learningRate(retptr, this.__wbg_ptr, value);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            if (r1) {
+                throw takeObject(r0);
+            }
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
     }
     /**
      * Set micro-LoRA rank
+     *
+     * Returns `Err` if `value` is outside `[1, 4]` (rank=0 is meaningless;
+     * MicroLoRA tops out at rank-4 in WASM).
+     *
+     * ADR-0237: fork diverges from upstream silent clamp
      * @param {number} value
      */
     set microLoraRank(value) {
-        wasm.sonaconfigwasm_set_microLoraRank(this.__wbg_ptr, value);
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.sonaconfigwasm_set_microLoraRank(retptr, this.__wbg_ptr, value);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            if (r1) {
+                throw takeObject(r0);
+            }
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
     }
     /**
      * Set pattern capacity
+     *
+     * Keeps the documented WASM ceiling (`<= 1000`); ADR-0231 wave A9
+     * removed the lower `.max(10)` clamp so user input below 10 is honored
+     * as-is. (Excluded from ADR-0237's fail-loud universalization because
+     * the only bound is a ceiling, not a range.)
      * @param {number} value
      */
     set patternCapacity(value) {
@@ -3300,7 +3362,7 @@ function __wbg_get_imports() {
                     const a = state0.a;
                     state0.a = 0;
                     try {
-                        return __wasm_bindgen_func_elem_1011(a, state0.b, arg0, arg1);
+                        return __wasm_bindgen_func_elem_1013(a, state0.b, arg0, arg1);
                     } finally {
                         state0.a = a;
                     }
@@ -3354,7 +3416,7 @@ function __wbg_get_imports() {
                     const a = state0.a;
                     state0.a = 0;
                     try {
-                        return __wasm_bindgen_func_elem_1011(a, state0.b, arg0, arg1);
+                        return __wasm_bindgen_func_elem_1013(a, state0.b, arg0, arg1);
                     } finally {
                         state0.a = a;
                     }
@@ -3483,7 +3545,7 @@ function __wbg_get_imports() {
         },
         __wbindgen_cast_0000000000000001: function(arg0, arg1) {
             // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 89, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_991);
+            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_993);
             return addHeapObject(ret);
         },
         __wbindgen_cast_0000000000000002: function(arg0) {
@@ -3522,10 +3584,10 @@ function __wbg_get_imports() {
     };
 }
 
-function __wasm_bindgen_func_elem_991(arg0, arg1, arg2) {
+function __wasm_bindgen_func_elem_993(arg0, arg1, arg2) {
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-        wasm.__wasm_bindgen_func_elem_991(retptr, arg0, arg1, addHeapObject(arg2));
+        wasm.__wasm_bindgen_func_elem_993(retptr, arg0, arg1, addHeapObject(arg2));
         var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
         var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
         if (r1) {
@@ -3536,8 +3598,8 @@ function __wasm_bindgen_func_elem_991(arg0, arg1, arg2) {
     }
 }
 
-function __wasm_bindgen_func_elem_1011(arg0, arg1, arg2, arg3) {
-    wasm.__wasm_bindgen_func_elem_1011(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
+function __wasm_bindgen_func_elem_1013(arg0, arg1, arg2, arg3) {
+    wasm.__wasm_bindgen_func_elem_1013(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
 const AdaptFeedbackWasmFinalization = (typeof FinalizationRegistry === 'undefined')
