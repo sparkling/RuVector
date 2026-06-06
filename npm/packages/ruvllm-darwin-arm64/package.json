@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/ruvllm-darwin-arm64",
-  "version": "2.0.0-patch.208",
+  "version": "2.0.0-patch.209",
   "os": [
     "darwin"
   ],

@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/benchmarks",
-  "version": "1.0.0-patch.561",
+  "version": "1.0.0-patch.562",
   "description": "Enterprise-grade benchmarking suite for RuVector distributed vector search",
   "main": "benchmark-runner.ts",
   "scripts": {
@@ -35,7 +35,7 @@
   "author": "RuVector Team",
   "license": "MIT",
   "dependencies": {
-    "@ruvector/agentic-synth": "0.1.6-patch.507"
+    "@ruvector/agentic-synth": "0.1.6-patch.508"
   },
   "devDependencies": {
     "@types/k6": "^0.52.0",
@@ -44,7 +44,7 @@
     "ts-node": "^10.9.0"
   },
   "optionalDependencies": {
-    "claude-flow": "3.7.0-alpha.11-patch.417"
+    "claude-flow": "3.7.0-alpha.11-patch.418"
   },
   "engines": {
     "node": ">=18.0.0",
