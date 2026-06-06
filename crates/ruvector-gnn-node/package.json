@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/gnn",
-  "version": "0.1.25-patch.242",
+  "version": "0.1.25-patch.243",
   "description": "Graph Neural Network capabilities for Ruvector - Node.js bindings",
   "main": "index.js",
   "types": "index.d.ts",
@@ -52,11 +52,11 @@
     "access": "public"
   },
   "optionalDependencies": {
-    "@ruvector/gnn-linux-x64-gnu": "0.1.25-patch.214",
-    "@ruvector/gnn-linux-x64-musl": "0.1.25-patch.214",
-    "@ruvector/gnn-linux-arm64-gnu": "0.1.25-patch.214",
-    "@ruvector/gnn-darwin-x64": "0.1.25-patch.214",
-    "@ruvector/gnn-darwin-arm64": "0.1.25-patch.214",
-    "@ruvector/gnn-win32-x64-msvc": "0.1.25-patch.214"
+    "@ruvector/gnn-linux-x64-gnu": "0.1.25-patch.215",
+    "@ruvector/gnn-linux-x64-musl": "0.1.25-patch.215",
+    "@ruvector/gnn-linux-arm64-gnu": "0.1.25-patch.215",
+    "@ruvector/gnn-darwin-x64": "0.1.25-patch.215",
+    "@ruvector/gnn-darwin-arm64": "0.1.25-patch.215",
+    "@ruvector/gnn-win32-x64-msvc": "0.1.25-patch.215"
   }
 }
