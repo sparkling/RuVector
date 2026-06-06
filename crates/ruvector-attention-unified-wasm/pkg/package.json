@@ -6,7 +6,7 @@
   ],
   "author": "RuVector Team <ruvnet@users.noreply.github.com>",
   "description": "Unified WebAssembly bindings for 18+ attention mechanisms: Neural, DAG, Graph, and Mamba SSM",
-  "version": "0.1.29-patch.215",
+  "version": "0.1.29-patch.216",
   "license": "MIT OR Apache-2.0",
   "repository": {
     "type": "git",
