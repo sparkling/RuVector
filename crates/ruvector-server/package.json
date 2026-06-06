@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/server",
-  "version": "0.1.0-patch.217",
+  "version": "0.1.0-patch.218",
   "description": "HTTP/gRPC server for RuVector - REST API with streaming support",
   "main": "index.js",
   "types": "index.d.ts",
