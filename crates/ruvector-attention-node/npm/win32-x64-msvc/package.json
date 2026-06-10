@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/attention-win32-x64-msvc",
-  "version": "0.1.4-patch.258",
+  "version": "0.1.4-patch.259",
   "os": [
     "win32"
   ],

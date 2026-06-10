@@ -1,6 +1,6 @@
 {
   "name": "@ruvector/router-darwin-x64",
-  "version": "0.1.30-patch.217",
+  "version": "0.1.30-patch.218",
   "description": "macOS x64 native bindings for @ruvector/router",
   "main": "ruvector-router.darwin-x64.node",
   "files": [
