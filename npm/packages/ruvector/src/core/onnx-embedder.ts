@@ -179,7 +179,6 @@ export async function initOnnxEmbedder(config: OnnxEmbedderConfig = {}): Promise
       // Paths to bundled ONNX files
       const bgJsPath = path.join(__dirname, 'onnx', 'pkg', 'ruvector_onnx_embeddings_wasm_bg.js');
       const wasmPath = path.join(__dirname, 'onnx', 'pkg', 'ruvector_onnx_embeddings_wasm_bg.wasm');
-      const loaderPath = path.join(__dirname, 'onnx', 'loader.js');
 
       if (!fs.existsSync(bgJsPath) || !fs.existsSync(wasmPath)) {
         throw new Error('ONNX WASM files not bundled. The onnx/ directory is missing.');
@@ -188,7 +187,6 @@ export async function initOnnxEmbedder(config: OnnxEmbedderConfig = {}): Promise
       // Load the bg.js module directly (avoids the ESM `import * as wasm from "*.wasm"`
       // in the main .js shim which requires --experimental-wasm-modules on Node 18-24).
       const bgUrl = pathToFileURL(bgJsPath).href;
-      const loaderUrl = pathToFileURL(loaderPath).href;
       wasmModule = await dynamicImport(bgUrl);
 
       // Instantiate the .wasm bytes via WebAssembly API (no --experimental-wasm-modules needed).
@@ -202,20 +200,57 @@ export async function initOnnxEmbedder(config: OnnxEmbedderConfig = {}): Promise
         (wasmExports as any).__wbindgen_start();
       }
 
-      const loaderModule = await dynamicImport(loaderUrl);
-      const { ModelLoader } = loaderModule;
-
-      // Create model loader with caching
-      const modelLoader = new ModelLoader({
-        cache: true,
-        cacheDir: config.cacheDir || path.join(process.env.HOME || '/tmp', '.ruvector', 'models'),
-      });
-
-      // Load model (downloads from HuggingFace on first use)
       const modelId = config.modelId || DEFAULT_MODEL;
-      console.error(`Loading ONNX model: ${modelId}...`);
 
-      const { modelBytes, tokenizerJson, config: modelConfig } = await modelLoader.loadModel(modelId);
+      // Resolve model bytes. Preference order:
+      //   1. Model files bundled with this package  → fully offline, no network.
+      //   2. A local model dir via RUVECTOR_MODEL_DIR → offline, user-supplied.
+      //   3. Download from HuggingFace (legacy online path, needs network).
+      // Each local dir is expected to contain `<modelId>/model.onnx` and
+      // `<modelId>/tokenizer.json`.
+      const localDirs = [
+        path.join(__dirname, 'onnx', 'pkg', 'models', modelId),
+        process.env.RUVECTOR_MODEL_DIR
+          ? path.join(process.env.RUVECTOR_MODEL_DIR, modelId)
+          : undefined,
+      ].filter(Boolean) as string[];
+
+      let localModelPath: string | undefined;
+      let localTokenizerPath: string | undefined;
+      for (const dir of localDirs) {
+        const m = path.join(dir, 'model.onnx');
+        const t = path.join(dir, 'tokenizer.json');
+        if (fs.existsSync(m) && fs.existsSync(t)) {
+          localModelPath = m;
+          localTokenizerPath = t;
+          break;
+        }
+      }
+
+      let modelBytes: Uint8Array;
+      let tokenizerJson: string;
+      let modelConfig: { maxLength?: number } = {};
+
+      if (localModelPath && localTokenizerPath) {
+        console.error(`Loading ONNX model: ${modelId} (offline, local files)...`);
+        modelBytes = new Uint8Array(fs.readFileSync(localModelPath));
+        tokenizerJson = fs.readFileSync(localTokenizerPath, 'utf8');
+      } else {
+        // No local model — fall back to downloading from HuggingFace.
+        const loaderPath = path.join(__dirname, 'onnx', 'loader.js');
+        const loaderUrl = pathToFileURL(loaderPath).href;
+        const loaderModule = await dynamicImport(loaderUrl);
+        const { ModelLoader } = loaderModule;
+        const modelLoader = new ModelLoader({
+          cache: true,
+          cacheDir: config.cacheDir || path.join(process.env.HOME || '/tmp', '.ruvector', 'models'),
+        });
+        console.error(`Loading ONNX model: ${modelId} (downloading from HuggingFace)...`);
+        const loaded = await modelLoader.loadModel(modelId);
+        modelBytes = loaded.modelBytes;
+        tokenizerJson = loaded.tokenizerJson;
+        modelConfig = loaded.config || {};
+      }
 
       // Create embedder with config
       const embedderConfig = new wasmModule.WasmEmbedderConfig()
